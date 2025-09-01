@@ -3,10 +3,4 @@ This application allows you to work with RFID tags without using an RFID printer
 2) Bring the Chainway C5 close to the tag and press the trigger. The application will read the RFID tag and immediately record it as RFID in one step.
 
 Since the software for working with UHF works with data in hex format, use codes in hex format for compatibility. For example, use tags
-E001
-E002
-E003....
-
-E009
-E010
-E011
+E001, E002, E003...., E009, E010, E011.
