@@ -1,0 +1,13 @@
+com.idata.scanner.decoder
+com.rscja
+com.rscja.barcode
+com.rscja.deviceapi
+com.rscja.deviceapi.entity
+com.rscja.deviceapi.enums
+com.rscja.deviceapi.exception
+com.rscja.deviceapi.interfaces
+com.rscja.scanner
+com.rscja.scanner.led
+com.rscja.scanner.utility
+com.rscja.system
+com.rscja.utility

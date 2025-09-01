@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/textView"
+        android:layout_width="match_parent"
+        android:layout_height="135dp"
+        android:text="RFID Tag Programming\nUse a thermal printer, thermal‑transfer printer, or marker to print the barcode onto your RFID label. Scan the printed barcode [A-F, 0-9]+ with your Chainway C5 device by pulling the trigger. Finally, tap WRITE RFID button to program the RFID code (as hex) into the tag." />
+
+    <EditText
+        android:id="@+id/editCode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:hint="Code"
+        android:inputType="text|textNoSuggestions" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="16dp">
+
+        <Button
+            android:id="@+id/btnWriteRFID"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="Write RFID" />
+    </LinearLayout>
+
+<ScrollView
+    android:id="@+id/log_scroll_view"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:fillViewport="true"
+    android:background="#EEEEEE">
+
+    <TextView
+        android:id="@+id/tvLog"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="" />
+</ScrollView>
+
+</LinearLayout>
+
