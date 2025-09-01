@@ -7,3 +7,9 @@ Problem: To use an RFID tag, you need to write the RFID code to the tag and (pre
 
 Since the software for working with UHF works with data in hex format, use codes in hex format for compatibility. For example, use tags
 E001, E002, E003...., E009, E010, E011. Names such as W001 will not work because W0 is not a hex digit.
+
+How to run
+1) Build with `gradlew build`
+2) Install apk on Chainway C5.
+
+   
