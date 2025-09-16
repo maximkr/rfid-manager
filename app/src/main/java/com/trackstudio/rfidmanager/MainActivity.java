@@ -55,7 +55,6 @@ public class MainActivity extends AppCompatActivity {
 
                 // init uhf module
                 mReader.init(this);
-                mReader.setFrequencyMode(0x37); // Russia
                 appendLog("Connect status: " + mReader.getConnectStatus());
                 appendLog("Freq mode: " + mReader.getFrequencyMode());
                 appendLog("Power: " + mReader.getPower());
@@ -80,6 +79,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void performWriteRFID() {
+        // default epc size
+        int epcSize=8;
         // remember power
         int power = mReader.getPower();
         mReader.setPower(10); //low range
@@ -90,14 +91,32 @@ public class MainActivity extends AppCompatActivity {
             appendLog("Code is empty");
             playSound(2);
         } else {
+
+            //Guess epc size
+            // try to read 8 first
             String currentData = mReader.readData("00000000", IUHF.Bank_EPC, 2, 8);
+            if (currentData==null) {
+                // if error - try to read 6
+                currentData = mReader.readData("00000000", IUHF.Bank_EPC, 2, 6);
+                //if ok - fix epcSize
+                if (currentData!=null) {
+                    epcSize=6;
+                    appendLog("EPC size = 6 words");
+                }
+            }
+
+
             if (currentData != null) {
                 appendLog("Current RFID tag data (before write): " + currentData);
+            } else {
+                String errMessage = ErrorCodeManager.getMessage(mReader.getErrCode());
+                appendLog("Read error: " + errMessage);
             }
 
             // need to write full data
-            String dataToWrite = String.format("%-32s", code).replace(' ', '0');
-            boolean result = mReader.writeData("00000000",IUHF.Bank_EPC,2, 8, dataToWrite); // write more data to clear it
+            String format = "%-"+4*epcSize+"s"; // %-s32s for 8 bytes, %-s24s for 6 bytes
+            String dataToWrite = String.format(format, code).replace(' ', '0');
+            boolean result = mReader.writeData("00000000",IUHF.Bank_EPC,2, epcSize, dataToWrite); // write more data to clear it
             if (!result) {
                 appendLog("Write error: " + ErrorCodeManager.getMessage(mReader.getErrCode()));
                 playSound(2);
@@ -116,7 +135,7 @@ public class MainActivity extends AppCompatActivity {
                 } else {
 
                     // Read to re-check
-                    String data = mReader.readData("00000000", IUHF.Bank_EPC, 2, 8);
+                    String data = mReader.readData("00000000", IUHF.Bank_EPC, 2, epcSize);
 
                     // Compare
                     if (data != null && data.toLowerCase().startsWith(code.toLowerCase())) {
