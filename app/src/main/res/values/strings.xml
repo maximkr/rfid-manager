@@ -5,6 +5,9 @@
     <string name="log_connected">Connected</string>
     <string name="log_reconnected">Reconnected successfully</string>
     <string name="log_disconnected">Disconnected</string>
+    <string name="scan_instructions">Scan barcode with trigger, then tap Write RFID to program the tag.</string>
+    <string name="nav_scan_write">Scan &amp; Write</string>
+    <string name="nav_settings">Settings</string>
     <string-array name="frequency_modes">
         <item>China 920–925 MHz</item>
         <item>USA 902–928 MHz</item>

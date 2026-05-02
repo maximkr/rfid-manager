@@ -6,318 +6,69 @@
     android:orientation="vertical"
     android:background="@color/md_theme_background">
 
-    <!-- Header -->
+    <!-- Global Header with Status -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:background="@drawable/bg_header"
-        android:padding="20dp"
-        android:paddingTop="28dp">
+        android:paddingHorizontal="20dp"
+        android:paddingVertical="16dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="RFID Manager"
-            android:textColor="@color/white"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="6dp" />
+            android:layout_weight="1"
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/textView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Scan barcode with trigger, then tap Write RFID to program the tag."
-            android:textColor="@color/white_70"
-            android:textSize="13sp"
-            android:lineSpacingExtra="2dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RFID Manager"
+                android:textColor="@color/white"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvGlobalStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Disconnected"
+                android:textColor="@color/white_70"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textAllCaps="true"
+                android:letterSpacing="0.1" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/ivStatusDot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:src="@android:drawable/presence_invisible"
+            app:tint="@color/md_theme_error" />
+
     </LinearLayout>
 
-    <!-- Scrollable content area -->
-    <ScrollView
+    <!-- Content Area -->
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/nav_host_fragment"
+        android:name="androidx.navigation.fragment.NavHostFragment"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
+        app:defaultNavHost="true"
+        app:navGraph="@navigation/nav_graph" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <!-- Input card -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="2dp"
-                app:strokeWidth="0dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:hint="Hex Code"
-                        app:boxCornerRadiusBottomEnd="12dp"
-                        app:boxCornerRadiusBottomStart="12dp"
-                        app:boxCornerRadiusTopEnd="12dp"
-                        app:boxCornerRadiusTopStart="12dp"
-                        app:startIconDrawable="@drawable/ic_rfid"
-                        app:startIconTint="@color/md_theme_primary"
-                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/editCode"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="textVisiblePassword|textNoSuggestions"
-                            android:text="@string/example_code"
-                            android:textSize="18sp"
-                            android:fontFamily="monospace"
-                            android:focusable="true"
-                            android:focusableInTouchMode="true" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnWriteRFID"
-                        android:layout_width="match_parent"
-                        android:layout_height="56dp"
-                        android:text="Write RFID"
-                        android:textSize="16sp"
-                        android:textAllCaps="false"
-                        app:icon="@drawable/ic_write"
-                        app:iconGravity="textStart"
-                        app:iconPadding="8dp"
-                        app:cornerRadius="12dp"
-                        style="@style/Widget.Material3.Button" />
-
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- History tags -->
-            <HorizontalScrollView
-                android:id="@+id/historyScroll"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:scrollbars="none"
-                android:overScrollMode="never">
-
-                <LinearLayout
-                    android:id="@+id/historyContainer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical" />
-            </HorizontalScrollView>
-
-            <!-- Settings card (collapsible) -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="2dp"
-                app:strokeWidth="0dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <!-- Settings header (clickable toggle) -->
-                    <LinearLayout
-                        android:id="@+id/settingsHeader"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:padding="16dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground">
-
-                        <ImageView
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:src="@drawable/ic_settings"
-                            android:layout_marginEnd="8dp"
-                            android:contentDescription="Settings icon" />
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="UHF Settings"
-                            android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:textColor="@color/md_theme_onSurface" />
-
-                        <TextView
-                            android:id="@+id/tvStatus"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Disconnected"
-                            android:textSize="12sp"
-                            android:textColor="@color/md_theme_onSurfaceVariant"
-                            android:layout_marginEnd="8dp" />
-
-                        <ImageView
-                            android:id="@+id/settingsChevron"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_expand_more"
-                            android:contentDescription="Expand" />
-                    </LinearLayout>
-
-                    <!-- Settings body (hidden by default) -->
-                    <LinearLayout
-                        android:id="@+id/settingsBody"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="16dp"
-                        android:paddingBottom="16dp"
-                        android:visibility="gone">
-
-                        <!-- Frequency mode -->
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:id="@+id/tilFreqMode"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginBottom="12dp"
-                            android:hint="Frequency Mode"
-                            app:boxCornerRadiusBottomEnd="12dp"
-                            app:boxCornerRadiusBottomStart="12dp"
-                            app:boxCornerRadiusTopEnd="12dp"
-                            app:boxCornerRadiusTopStart="12dp"
-                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
-
-                            <AutoCompleteTextView
-                                android:id="@+id/spinnerFreqMode"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="none"
-                                android:textSize="14sp" />
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                        <!-- Power slider -->
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Power"
-                            android:textSize="12sp"
-                            android:textColor="@color/md_theme_onSurfaceVariant"
-                            android:layout_marginBottom="4dp" />
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:layout_marginBottom="12dp">
-
-                            <com.google.android.material.slider.Slider
-                                android:id="@+id/sliderPower"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:valueFrom="5"
-                                android:valueTo="30"
-                                android:stepSize="1" />
-
-                            <TextView
-                                android:id="@+id/tvPowerValue"
-                                android:layout_width="48dp"
-                                android:layout_height="wrap_content"
-                                android:text="0 dBm"
-                                android:textSize="13sp"
-                                android:textColor="@color/md_theme_onSurface"
-                                android:gravity="center"
-                                android:fontFamily="monospace" />
-                        </LinearLayout>
-
-                        <!-- Reconnect button -->
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnReconnect"
-                            android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:text="Reconnect UHF"
-                            android:textAllCaps="false"
-                            app:icon="@drawable/ic_refresh"
-                            app:iconGravity="textStart"
-                            app:iconPadding="8dp"
-                            app:cornerRadius="12dp"
-                            style="@style/Widget.Material3.Button.OutlinedButton" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Log section -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="8dp"
-                android:paddingStart="4dp">
-
-                <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:src="@drawable/ic_log"
-                    android:layout_marginEnd="6dp"
-                    android:contentDescription="Log icon" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Activity Log"
-                    android:textColor="@color/md_theme_onSurfaceVariant"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.05" />
-            </LinearLayout>
-
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:minHeight="200dp"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/log_background"
-                app:strokeColor="@color/outline"
-                app:strokeWidth="1dp">
-
-                <ScrollView
-                    android:id="@+id/log_scroll_view"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:minHeight="200dp">
-
-                    <TextView
-                        android:id="@+id/tvLog"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:padding="14dp"
-                        android:text=""
-                        android:textColor="@color/log_text"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:lineSpacingExtra="3dp" />
-                </ScrollView>
-            </com.google.android.material.card.MaterialCardView>
-
-        </LinearLayout>
-    </ScrollView>
+    <!-- Bottom Navigation -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottom_navigation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/md_theme_surface"
+        app:menu="@menu/bottom_nav_menu"
+        app:labelVisibilityMode="labeled"
+        app:elevation="8dp" />
 
 </LinearLayout>

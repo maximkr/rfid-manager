@@ -6,32 +6,34 @@ Android app for writing UHF RFID tags using the Chainway C5 rugged device. Scans
 
 ```
 app/src/main/java/com/trackstudio/rfidmanager/
-  MainActivity.java        # Single activity: UHF init, barcode scan callback, RFID write/verify
-  ErrorCodeManager.java    # Maps Chainway UHF error codes to human-readable messages
+  MainActivity.kt          # Main entry: Host for fragments, hardware owner, shared state
+  WriteFragment.kt         # "Scan & Write" screen: barcode input, log, history
+  SettingsFragment.kt      # Configuration screen: UHF power, frequency, reconnect
+  SharedViewModel.kt       # Global status management (connected/disconnected)
+  ErrorCodeManager.kt      # Maps Chainway UHF error codes to human-readable messages
 
 app/src/main/res/
-  layout/activity_main.xml          # Portrait layout (Material 3 cards, TextInput, log area)
-  layout-land/activity_main.xml     # Landscape variant
+  layout/activity_main.xml          # Host layout with BottomNav and Global Status Bar
+  layout/fragment_write.xml         # Scan & Write UI (instructions, input, tags, log)
+  layout/fragment_settings.xml      # Settings UI (cards for config, reconnect btn)
   layout/history_tag.xml            # Template for dynamic history chips
-  drawable/                         # Vector icons (ic_rfid, ic_write, ic_log), backgrounds
+  menu/bottom_nav_menu.xml          # Navigation menu (Scan & Write, Settings)
+  navigation/nav_graph.xml          # Jetpack Navigation definition
+  drawable/                         # Vector icons, backgrounds
   values/colors.xml                 # Green Material 3 palette
   values/themes.xml                 # Theme.RFIDManager (Material3.Light.NoActionBar)
-  values/strings.xml                # Externalized strings and example codes
-  raw/                              # Audio: barcodebeep.ogg (success), serror.ogg (error)
-  xml/configuration_6603.xml        # Chainway device config
-
-app/libs/
-  DeviceAPI_ver20230301_release.aar  # Chainway proprietary SDK (UHF + barcode)
+  values/strings.xml                # Externalized strings
+  raw/                              # Audio: barcodebeep.ogg, serror.ogg
 ```
 
 ## Build & dependencies
 
-- **Language:** Java (no Kotlin)
-- **Build:** Gradle 9.4.1, AGP 9.2.0, Kotlin DSL
-- **SDK:** minSdk 33, targetSdk 33, compileSdk 37
-- **Dependencies:** AndroidX AppCompat 1.7.1, Material 1.12.0, ConstraintLayout 2.2.1, Navigation 2.9.0
-- **Version catalog:** `gradle/libs.versions.toml`
-- **View Binding:** enabled
+- **Language:** Kotlin (migrated from Java)
+- **Asynchronous Logic:** Kotlin Coroutines (`lifecycleScope`, `Dispatchers.IO`, `withContext`)
+- **Architecture:** Single Activity + Fragments + Jetpack Navigation + Shared ViewModel
+- **Build:** Gradle 9.4.1, AGP 9.2.0, Kotlin DSL, JVM Target 11
+- **View Binding:** Enabled for all layouts
+- **Hardware SDK:** Chainway DeviceAPI (AAR)
 
 ## Key hardware APIs (from DeviceAPI AAR)
 
@@ -42,41 +44,35 @@ app/libs/
 
 ## Interface requirements & logic
 
-### 1. Data Input & Validation
-- **Input field**: Contains an example code (e.g., `e0000001`) by default via `@string/example_code`.
-- **Hex validation**: Only characters `0-9` and `A-F` (case-insensitive) are allowed. Non-hex characters block the writing process with an error message in the log.
-- **Length check**: Before writing, the app detects if the tag is 6 or 8 words (EPC bank). If the input hex string is longer than the tag's capacity (24 or 32 chars), the write is cancelled with an error.
+### 1. Navigation & Layout
+- **Bottom Navigation**: Two tabs — "Scan & Write" and "Settings".
+- **Global Status Bar**: Fixed header in `MainActivity` showing connection status (`CONNECTED` with green dot / `DISCONNECTED` with red dot).
 
-### 2. History Strip (Tag Bar)
-- **Visuals**: A horizontal scrollable area below the input card.
-- **Behavior**: New entries appear on the far left, pushing older ones to the right.
-- **Color coding**: 
-    - **Green tag**: Successful RFID write and verification.
-    - **Red tag**: Any error (validation failed, tag not found, write error).
-- **Interactivity**: Supports finger-swiping; scrollbars are hidden for a clean look.
+### 2. Scan & Write (Main Screen)
+- **Instructions**: Explicit text guide for the user at the top.
+- **Data Input**: Hex-only validation (0-9, A-F). Example code `e0000001` loaded by default.
+- **History Strip**: Horizontal scrollable list of recent tags. Green = Success, Red = Error. New tags appear on the left.
+- **Activity Log**: Newest entries at the top, max 30 entries, automatic scroll to top.
 
-### 3. Activity Log
-- **Sorting**: Newest entries are always at the top.
-- **Capacity**: Maximum 30 entries (uses `LinkedList` to manage history). Older entries are automatically removed.
-- **Auto-scroll**: Automatically scrolls to the top (latest entry) when a new message is added.
-- **Format**: `HH:mm:ss - [Message]`.
+### 3. Settings Screen
+- **UHF Config**: Dropdown for frequency mode, slider for output power (5-30 dBm).
+- **Reconnect**: Manual hardware re-initialization button.
 
 ### 4. Hardware Execution (RFID Write Flow)
-- **Background Threading**: All hardware interactions (RFID read/write) **must** run in a background thread to prevent Application Not Responding (ANR) errors.
-- **UI Thread**: All interface updates (logging, history tags, toast/status updates) must use `runOnUiThread`.
+- **Threading**: All hardware calls run on `Dispatchers.IO`. UI updates use `Dispatchers.Main`.
 - **Write sequence**:
-    1. Temporarily set power to 10 dBm (safe low-range writing).
+    1. Temporarily drop power to 10 dBm for safe writing.
     2. Detect EPC size (try reading 8 words, then 6).
     3. Validate input length against detected size.
     4. Write data at offset 2 of EPC bank.
     5. Read back and compare for verification.
     6. Restore original power level in `finally` block.
-    7. Play sound (ID 1 for success, ID 2 for error).
+    7. Play success (ID 1) or error (ID 2) sound.
 
 ## Conventions
 
-- **No Kotlin**: Maintain all logic in Java.
-- **Material 3**: Use Material 3 components, colors, and themes.
-- **Color scheme**: Primary Green (#2E7D32), Error Red (#D32F2F).
-- **Externalization**: Use `strings.xml` for all user-facing text and formatters.
-- **Logging**: Use the internal `appendLog()` method instead of standard `Log.d` for user visibility.
+- **Kotlin First**: Use modern Kotlin idioms (property access, `apply`, `let`, `when`).
+- **Safety**: Use nullable types for hardware instances (`barcodeDecoder?`, `mReader?`).
+- **Material 3**: Follow M3 color palette and component guidelines.
+- **Externalization**: No hardcoded strings in code; use `strings.xml`.
+- **Log Visibility**: Use `appendLog()` for user-facing feedback, managed via the Activity to persist during navigation.
