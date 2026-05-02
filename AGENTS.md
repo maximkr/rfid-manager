@@ -60,10 +60,11 @@ app/src/main/res/
 
 ### 3. Radar (Target Search)
 - **Targeting**: User-defined EPC substring. Supports Paste.
-- **Multi-Target List**: Dynamic list of all detected tags sorted by dBm. Includes visual intensity bars.
-- **Dynamic Sensitivity (Auto-Gain)**: Sound frequency and pitch adapt to the local signal range (last 5s) for pinpoint accuracy.
-- **Hardware Trigger**: Holding the physical trigger button temporarily reduces power by 5 dBm for close-range precision. Power is restored on release.
-- **Decay**: Signal clears if tag is not seen for >1s. UI throttled to 10 FPS for performance.
+- **Adaptive Power Scanning**: The hardware uses a 3-step sliding window to rapidly cycle power levels (e.g., `26, 22, 18`). The window dynamically slides down to lower powers (up to 5 dBm) when the target is near, filtering out background reflections, and slides back up to 30 dBm when the target is lost.
+- **Smart Hardware Math**: The app calculates an "equivalent 30 dBm distance" by compensating +1.0 dBm for every 1 dBm drop in transmission power. This ensures the visual graph doesn't jump wildly during physical power switches.
+- **EMA Trend Graph**: A full-screen visualizer displaying two lines: the fast current signal and a slow Exponential Moving Average (EMA). The area between lines turns **Green** (Getting Closer) or **Red** (Moving Away).
+- **Directional Audio**: A steady audio tick that changes pitch based on your trend. It plays an "OK" beep while in the Green zone and an "Error" beep when in the Red zone, allowing completely blind navigation.
+- **Panic Recovery**: If the tag completely disappears from the current low-power window, the radar pauses the graph decay and makes a massive 540ms "rescue sweep" at `[30, 24, 19] dBm` to quickly re-acquire the target without destroying the visual trend.
 
 ### 4. Activity Log
 - **Dedicated View**: Full-screen log. Newest entries at the top. Max 30 entries.

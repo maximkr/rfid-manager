@@ -68,6 +68,16 @@ class WriteFragment : Fragment() {
         binding.editCode.setText(data)
     }
 
+    override fun onResume() {
+        super.onResume()
+        mainActivity?.openBarcode()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mainActivity?.closeBarcode()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null

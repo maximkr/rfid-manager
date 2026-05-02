@@ -78,39 +78,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == 139 || keyCode == 280) {
-            if (isInventoryRunning && originalRadarPower == null && event.repeatCount == 0) {
-                val currentPower = getRadarPower()
-                originalRadarPower = currentPower
-                val temporaryPower = (currentPower - 5).coerceAtLeast(5)
-                
-                mReader?.let {
-                    it.stopInventory()
-                    it.setPower(temporaryPower)
-                    it.startInventoryTag()
-                }
-                appendLog("Sensitivity Boost: ${temporaryPower}dBm (Trigger Hold)")
-                return true
-            }
-        }
+        // Убрали отключение курка в режиме радара. 
+        // Курок больше не перехватывается для понижения мощности.
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == 139 || keyCode == 280) {
-            originalRadarPower?.let { power ->
-                if (isInventoryRunning) {
-                    mReader?.let {
-                        it.stopInventory()
-                        it.setPower(power)
-                        it.startInventoryTag()
-                    }
-                    appendLog("Restored: ${power}dBm")
-                }
-                originalRadarPower = null
-                return true
-            }
-        }
         return super.onKeyUp(keyCode, event)
     }
 
@@ -182,9 +155,12 @@ class MainActivity : AppCompatActivity() {
     fun getRadarPower() = prefs.getInt(PREF_RADAR_POWER, DEFAULT_RADAR_POWER)
     fun saveRadarPower(power: Int) {
         prefs.edit().putInt(PREF_RADAR_POWER, power).apply()
+        setDynamicRadarPower(power)
+    }
+
+    fun setDynamicRadarPower(power: Int) {
         mReader?.let {
             if (isInventoryRunning) {
-                // Changing power during inventory often requires a restart
                 it.stopInventory()
                 it.setPower(power)
                 it.startInventoryTag()
@@ -192,6 +168,18 @@ class MainActivity : AppCompatActivity() {
                 it.setPower(power)
             }
         }
+    }
+
+    fun openBarcode() {
+        if (barcodeDecoder?.open(this) == true) {
+            BarcodeUtility.getInstance().enablePlayFailureSound(this, true)
+            appendLog("Barcode scanner enabled")
+        }
+    }
+
+    fun closeBarcode() {
+        barcodeDecoder?.close()
+        appendLog("Barcode scanner disabled (Radar mode)")
     }
 
     fun reconnectUhf() {
@@ -384,15 +372,14 @@ else {
 
     private fun installBarcodeDecoderCallback() {
         barcodeDecoder?.let { decoder ->
-            if (decoder.open(this)) {
-                decoder.setDecodeCallback { barcodeEntity ->
-                    lifecycleScope.launch(Dispatchers.Main) {
-                        if (barcodeEntity.resultCode == BarcodeDecoder.DECODE_SUCCESS) {
-                            val navHost = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
-                            val fragment = navHost.childFragmentManager.fragments.firstOrNull() as? WriteFragment
-                            fragment?.setBarcodeData(barcodeEntity.barcodeData)
-                            performWriteRFID(barcodeEntity.barcodeData)
-                        }
+            // Don't open here, fragments will manage lifecycle
+            decoder.setDecodeCallback { barcodeEntity ->
+                lifecycleScope.launch(Dispatchers.Main) {
+                    if (barcodeEntity.resultCode == BarcodeDecoder.DECODE_SUCCESS) {
+                        val navHost = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+                        val fragment = navHost.childFragmentManager.fragments.firstOrNull() as? WriteFragment
+                        fragment?.setBarcodeData(barcodeEntity.barcodeData)
+                        performWriteRFID(barcodeEntity.barcodeData)
                     }
                 }
             }

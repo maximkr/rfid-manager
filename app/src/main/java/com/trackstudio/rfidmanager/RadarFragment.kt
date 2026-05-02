@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import java.util.Locale
+import android.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
@@ -28,21 +29,59 @@ class RadarFragment : Fragment() {
     private val viewModel: SharedViewModel by activityViewModels()
 
     private var isRadarRunning = false
-    private var lastHardwareUpdate = 0L
-    private var lastRssi = 0
-    private var smoothedRssi = 0f
-    private val targetHistory = ArrayDeque<Double>(50) // Store ~5-10 seconds of raw RSSI
+    private var accumulatedScore = -90f
+    private var targetAccumulatedScore = -90f
+    private var emaSlowScore = -90f
     private val handler = Handler(Looper.getMainLooper())
-    private var lastListUpdate = 0L
+    
+    private val allPowers = intArrayOf(30, 24, 19, 15, 12, 10, 8, 7, 6, 5)
+    private var windowIndex = 0
+    private var cycleIndex = 0
+    private var currentDynamicPower = 30
+    private val phaseDurationMs = 180L
 
     @Volatile
     private var targetEpc = ""
 
-    private data class TagInfo(val recentRssi: ArrayDeque<Double>, var lastSeen: Long, val epc: String) {
-        val avgRssi: Double get() = if (recentRssi.isEmpty()) 0.0 else recentRssi.average()
+    private class TagCycleData(var lastSeen: Long) {
+        val rssiMap = mutableMapOf<Int, Double>()
+        var lastEvaluatedScore: Float = 0f
+        
+        fun recordRssi(power: Int, rssi: Double) {
+            rssiMap[power] = rssi
+        }
+        
+        fun evaluate() {
+            if (rssiMap.isNotEmpty()) {
+                val lowestPowerEntry = rssiMap.minByOrNull { it.key }
+                if (lowestPowerEntry != null) {
+                    val lowestPower = lowestPowerEntry.key
+                    val lowestRssi = lowestPowerEntry.value
+                    
+                    // Приводим сигнал к "Эквивалентной мощности" (как если бы мы читали на 30 дБм)
+                    val actualRssi = -abs(lowestRssi) // Гарантируем, что сырой RSSI всегда отрицательный
+                    val powerDrop = 30 - lowestPower
+                    
+                    // Физика отражения: падение мощности передатчика на 1 дБм дает
+                    // падение мощности отраженного сигнала тоже на 1 дБм (в линейном режиме)
+                    val equivalentRssi = actualRssi + powerDrop
+                    
+                    // Исключаем неадекватно положительные значения из-за сильного сигнала в упор (макс -10 dBm)
+                    lastEvaluatedScore = equivalentRssi.toFloat().coerceAtMost(-10f)
+                }
+            } else {
+                // Если метка пропала, плавно уводим сигнал вниз (в сторону -90 dBm)
+                if (lastEvaluatedScore == 0f) lastEvaluatedScore = -90f
+                lastEvaluatedScore = (lastEvaluatedScore - 5f).coerceAtLeast(-90f)
+            }
+        }
+        
+        fun reset() {
+            rssiMap.clear()
+        }
     }
 
-    private val tagMap = LinkedHashMap<String, TagInfo>()
+    private val tagMap = LinkedHashMap<String, TagCycleData>()
 
     private fun isTarget(epc: String): Boolean {
         if (targetEpc.isEmpty()) return false
@@ -52,34 +91,18 @@ class RadarFragment : Fragment() {
     private val soundTicker = object : Runnable {
         override fun run() {
             if (!isRadarRunning) return
-            // Auto-decay if no hardware updates for target
-            if (System.currentTimeMillis() - lastHardwareUpdate > 1000) {
-                lastRssi = 0
-            }
             
-            val signal = smoothedRssi.toInt()
-            if (signal > 0) {
-                // Calculate local sensitivity
-                val maxInHistory = if (targetHistory.isEmpty()) 0.0 else targetHistory.max()
-                val minInHistory = if (targetHistory.isEmpty()) 0.0 else targetHistory.min()
-                val range = maxInHistory - minInHistory
-                
-                // Pitch Factor: 0.0 to 1.0 based on how close current is to local max
-                val currentRaw = if (targetHistory.isEmpty()) 0.0 else targetHistory.last()
-                val factor = if (range > 0.5) {
-                    ((currentRaw - minInHistory) / range).coerceIn(0.0, 1.0).toFloat()
+            if (accumulatedScore > -88f && !isPanicRecoveryMode) {
+                // Пикаем OK, если находимся в зеленой зоне (сигнал растет или выше среднего)
+                if (accumulatedScore >= emaSlowScore) {
+                    mainActivity?.playSound(1, 1.0f) // Barcode beep
                 } else {
-                    0.5f
+                    // Пикаем Error, если находимся в красной зоне (сигнал падает ниже среднего)
+                    mainActivity?.playSound(2, 1.0f) // Error beep
                 }
-
-                // 1.0 (base) to 2.0 (high pitch)
-                val pitch = 1.0f + factor
                 
-                mainActivity?.playSound(1, pitch)
-                
-                // Delay also depends on absolute signal strength
-                val delay = 1000.0 - (signal * 9.6)
-                handler.postDelayed(this, delay.toLong().coerceIn(40, 1000))
+                // Фиксированный темп, больше не "счетчик гейгера"
+                handler.postDelayed(this, 300)
             } else {
                 handler.postDelayed(this, 200)
             }
@@ -89,14 +112,109 @@ class RadarFragment : Fragment() {
     private val graphTicker = object : Runnable {
         override fun run() {
             if (isRadarRunning) {
-                binding.radarGraph.addValue(smoothedRssi.toInt())
-                // Decay if target not seen
-                if (System.currentTimeMillis() - lastHardwareUpdate > 500) {
-                    smoothedRssi *= 0.5f // Faster decay
+                // НЕ рисуем график, если мы в состоянии "паники"
+                if (!isPanicRecoveryMode) {
+                    val maxP = allPowers[windowIndex]
+                    val minP = allPowers[windowIndex + 2]
+                    
+                    // Синхронизируем медленную среднюю для звука с тем, как она считается в графике
+                    if (accumulatedScore == -90f && emaSlowScore == -90f) {
+                        emaSlowScore = accumulatedScore
+                    } else {
+                        emaSlowScore = (0.02f * accumulatedScore) + (0.98f * emaSlowScore)
+                    }
+                    
+                    binding.radarGraph.addValue(accumulatedScore, maxP, minP)
+                    
+                    if (accumulatedScore > -89f) {
+                        binding.tvOverlayScore.visibility = View.VISIBLE
+                        binding.tvOverlayScore.text = String.format(Locale.US, "%.1f dBm", accumulatedScore)
+                        binding.tvOverlayScore.setTextColor(Color.parseColor("#00E676")) // Всегда зеленый
+                    } else {
+                        binding.tvOverlayScore.visibility = View.GONE
+                    }
                 }
-                if (smoothedRssi < 1f) smoothedRssi = 0f
-                handler.postDelayed(this, 100) // Faster graph
+                
+                // Smoothly interpolate current dBm to target dBm
+                accumulatedScore += (targetAccumulatedScore - accumulatedScore) * 0.6f
+                
+                handler.postDelayed(this, 50) // Fast graph updates for smoothness
             }
+        }
+    }
+    
+    // Флаг того, что метка пропала и мы делаем экстренный цикл на диапазоне [30, 24, 19]
+    private var isPanicRecoveryMode = false
+
+    private val cycleTicker = object : Runnable {
+        override fun run() {
+            if (!isRadarRunning) return
+            
+            cycleIndex++
+            if (cycleIndex >= 3) { // 3 powers in a sliding window
+                // End of cycle! Evaluate all tags.
+                tagMap.values.forEach { it.evaluate() }
+                
+                val targetTag = tagMap.entries.find { isTarget(it.key) }?.value
+                
+                if (targetTag == null || targetTag.rssiMap.isEmpty()) {
+                    if (!isPanicRecoveryMode && windowIndex > 0) {
+                        // Метка пропала. Замораживаем график и уходим в "Panic Mode".
+                        isPanicRecoveryMode = true
+                        windowIndex = 0 // Сразу прыгаем на [30, 24, 19]
+                        cycleIndex = 0
+                        
+                        // Делаем вид, что ничего не произошло (оставляем старый targetAccumulatedScore).
+                        // Запускаем экстренный опрос. График пока стоит на паузе.
+                        currentDynamicPower = allPowers[0]
+                        mainActivity?.setDynamicRadarPower(currentDynamicPower)
+                        handler.postDelayed(this, phaseDurationMs)
+                        return
+                    }
+                }
+                
+                // Если мы дошли сюда, значит либо метка найдена, либо мы уже прогнали Panic Mode и её там тоже нет.
+                isPanicRecoveryMode = false
+                targetAccumulatedScore = targetTag?.lastEvaluatedScore ?: -90f
+                
+                // Adjust sliding window based on target tag presence
+                val oldWindowIndex = windowIndex
+                if (targetTag != null && targetTag.rssiMap.isNotEmpty()) {
+                    val highPower = allPowers[windowIndex]
+                    val midPower = allPowers[windowIndex + 1]
+                    val lowPower = allPowers[windowIndex + 2]
+                    
+                    val seenHigh = targetTag.rssiMap.containsKey(highPower)
+                    val seenMid = targetTag.rssiMap.containsKey(midPower)
+                    val seenLow = targetTag.rssiMap.containsKey(lowPower)
+                    
+                    if (seenHigh && seenMid && seenLow) {
+                        // Видно на всех трех -> сдвигаем окно вниз (к меньшим мощностям)
+                        windowIndex = (windowIndex + 1).coerceAtMost(allPowers.size - 3)
+                    } else if (!seenMid) {
+                        // Не видно на средней (или вообще пропала) -> сдвигаем окно вверх (к бОльшим мощностям)
+                        windowIndex = (windowIndex - 1).coerceAtLeast(0)
+                    }
+                    // Иначе (видно на высокой и средней, но не на низкой) -> остаемся на текущем уровне
+                } else {
+                    // Метка вообще не прочиталась в этом цикле -> возвращаемся к бОльшим мощностям
+                    windowIndex = (windowIndex - 1).coerceAtLeast(0)
+                }
+
+                if (windowIndex > oldWindowIndex) {
+                    mainActivity?.appendLog("Auto-Power: Down to [${allPowers[windowIndex]}, ${allPowers[windowIndex+1]}, ${allPowers[windowIndex+2]}]")
+                } else if (windowIndex < oldWindowIndex) {
+                    mainActivity?.appendLog("Auto-Power: Up to [${allPowers[windowIndex]}, ${allPowers[windowIndex+1]}, ${allPowers[windowIndex+2]}]")
+                }
+                
+                tagMap.values.forEach { it.reset() }
+                cycleIndex = 0
+            }
+            
+            currentDynamicPower = allPowers[windowIndex + cycleIndex]
+            mainActivity?.setDynamicRadarPower(currentDynamicPower)
+            
+            handler.postDelayed(this, phaseDurationMs)
         }
     }
 
@@ -104,12 +222,11 @@ class RadarFragment : Fragment() {
         override fun run() {
             if (!isRadarRunning) return
             val now = System.currentTimeMillis()
-            val toRemove = tagMap.filter { now - it.value.lastSeen > 3000 }.keys
+            val toRemove = tagMap.filter { now - it.value.lastSeen > 2000 }.keys
             if (toRemove.isNotEmpty()) {
                 toRemove.forEach { tagMap.remove(it) }
-                rebuildTagsList()
             }
-            handler.postDelayed(this, 500)
+            handler.postDelayed(this, 1000)
         }
     }
 
@@ -123,7 +240,6 @@ class RadarFragment : Fragment() {
 
         viewModel.isConnected.observe(viewLifecycleOwner) { connected ->
             binding.btnToggleRadar.isEnabled = connected
-            binding.toggleRadarPower.isEnabled = connected
         }
 
         binding.btnToggleRadar.setOnClickListener {
@@ -137,20 +253,6 @@ class RadarFragment : Fragment() {
             if (!pasteData.isNullOrEmpty()) {
                 binding.editTargetEpc.setText(pasteData)
                 mainActivity?.appendLog("Pasted: $pasteData")
-            }
-        }
-
-        binding.btnPowerHigh.setOnClickListener { mainActivity?.saveRadarPower(30) }
-        binding.btnPowerMedium.setOnClickListener { mainActivity?.saveRadarPower(25) }
-        binding.btnPowerLow.setOnClickListener { mainActivity?.saveRadarPower(20) }
-
-        mainActivity?.let { activity ->
-            val savedPower = activity.getRadarPower()
-            when (savedPower) {
-                30 -> binding.toggleRadarPower.check(R.id.btnPowerHigh)
-                25 -> binding.toggleRadarPower.check(R.id.btnPowerMedium)
-                20 -> binding.toggleRadarPower.check(R.id.btnPowerLow)
-                else -> binding.toggleRadarPower.check(R.id.btnPowerHigh)
             }
         }
     }
@@ -173,55 +275,27 @@ class RadarFragment : Fragment() {
         binding.editTargetEpc.isEnabled = false
         binding.btnPaste.isEnabled = false
         tagMap.clear()
-        targetHistory.clear()
         binding.radarGraph.clear()
-        rebuildTagsList()
-        lastRssi = 0
-        smoothedRssi = 0f
+        binding.tvOverlayScore.visibility = View.GONE
+        accumulatedScore = -90f
+        targetAccumulatedScore = -90f
+        emaSlowScore = -90f
+        windowIndex = 0
+        cycleIndex = 0
 
-        mainActivity?.let { activity ->
-            val power = when (binding.toggleRadarPower.checkedButtonId) {
-                R.id.btnPowerHigh -> 30
-                R.id.btnPowerMedium -> 25
-                R.id.btnPowerLow -> 20
-                else -> 30
-            }
-            activity.saveRadarPower(power)
-        }
+        currentDynamicPower = allPowers[windowIndex]
+        mainActivity?.setDynamicRadarPower(currentDynamicPower)
 
         handler.post(soundTicker)
         handler.post(graphTicker)
         handler.post(cleanupRunnable)
+        handler.postDelayed(cycleTicker, phaseDurationMs) // Start cycle ticker
 
-        mainActivity?.startRadar(epc) { rawRssi, displayRssi, detectedEpc ->
+        mainActivity?.startRadar(epc) { rawRssi, _, detectedEpc ->
             val now = System.currentTimeMillis()
-            val target = isTarget(detectedEpc)
-            
-            if (target) {
-                lastRssi = displayRssi
-                val alpha = 0.95f // Much faster reaction
-                smoothedRssi = (alpha * displayRssi) + (1 - alpha) * smoothedRssi
-                lastHardwareUpdate = now
-                targetHistory.addLast(rawRssi)
-                if (targetHistory.size > 50) targetHistory.removeFirst()
-            }
-            
-            val existing = tagMap[detectedEpc]
-            if (existing != null) {
-                existing.recentRssi.addLast(rawRssi)
-                if (existing.recentRssi.size > 5) existing.recentRssi.removeFirst()
-                existing.lastSeen = now
-            } else {
-                val dq = ArrayDeque<Double>(6)
-                dq.addLast(rawRssi)
-                tagMap[detectedEpc] = TagInfo(dq, now, detectedEpc)
-            }
-
-            // Throttle UI updates to 10 FPS
-            if (now - lastListUpdate > 100) {
-                rebuildTagsList()
-                lastListUpdate = now
-            }
+            val info = tagMap.getOrPut(detectedEpc) { TagCycleData(now) }
+            info.lastSeen = now
+            info.recordRssi(currentDynamicPower, rawRssi)
         }
         mainActivity?.appendLog("Searching for tags starting with *$epc*")
     }
@@ -231,93 +305,16 @@ class RadarFragment : Fragment() {
         handler.removeCallbacks(soundTicker)
         handler.removeCallbacks(graphTicker)
         handler.removeCallbacks(cleanupRunnable)
+        handler.removeCallbacks(cycleTicker)
         binding.btnToggleRadar.setText(R.string.radar_start)
         binding.editTargetEpc.isEnabled = true
         binding.btnPaste.isEnabled = true
+        binding.tvOverlayScore.visibility = View.GONE
         mainActivity?.stopRadar()
         mainActivity?.appendLog("Radar stopped")
     }
 
-    private fun rebuildTagsList() {
-        val container = binding.tagsContainer
-        container.removeAllViews()
-
-        val sorted = tagMap.entries
-            .sortedByDescending { it.value.avgRssi }
-            .take(15)
-
-        val context = requireContext()
-        val normalColor = ContextCompat.getColor(context, R.color.md_theme_onSurface)
-        val targetColor = ContextCompat.getColor(context, R.color.md_theme_error)
-        val dimColor = ContextCompat.getColor(context, R.color.md_theme_onSurfaceVariant)
-
-        sorted.forEachIndexed { index, (epc, info) ->
-            val target = isTarget(epc)
-            val textColor = if (target) targetColor else normalColor
-            
-            val displayEpc = if (epc.length > 18) epc.take(18) + "\u2026" else epc
-
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(8, 6, 8, 6)
-            }
-
-            val rankView = TextView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(30.dp, LinearLayout.LayoutParams.WRAP_CONTENT)
-                text = "${index + 1}"
-                setTextColor(textColor)
-                textSize = 12f
-                gravity = Gravity.CENTER
-            }
-
-            val epcView = TextView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                text = displayEpc
-                setTextColor(textColor)
-                textSize = 12f
-                typeface = Typeface.MONOSPACE
-                if (target) setTypeface(typeface, Typeface.BOLD)
-            }
-
-            // High-resolution intensity bar
-            val barLayout = LinearLayout(context).apply {
-                layoutParams = LinearLayout.LayoutParams(0, 12.dp, 1f).apply {
-                    marginStart = 8.dp
-                    marginEnd = 8.dp
-                }
-                orientation = LinearLayout.HORIZONTAL
-                setBackgroundColor(ContextCompat.getColor(context, R.color.outline))
-            }
-            
-            val intensity = ((80.0 - abs(info.avgRssi)) * 100 / 50).toInt().coerceIn(0, 100)
-            val barProgress = View(context).apply {
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, intensity.toFloat() / 100f)
-                setBackgroundColor(if (target) targetColor else ContextCompat.getColor(context, R.color.md_theme_primary))
-            }
-            val barEmpty = View(context).apply {
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (100 - intensity).toFloat() / 100f)
-            }
-            barLayout.addView(barProgress)
-            barLayout.addView(barEmpty)
-
-            val rssiView = TextView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(70.dp, LinearLayout.LayoutParams.WRAP_CONTENT)
-                // Always show as negative dBm for consistency
-                val displayVal = if (info.avgRssi > 0) -info.avgRssi else info.avgRssi
-                text = String.format(Locale.US, "%.1f", displayVal)
-                setTextColor(if (target) targetColor else dimColor)
-                textSize = 12f
-                gravity = Gravity.END
-                if (target) setTypeface(typeface, Typeface.BOLD)
-            }
-
-            row.addView(rankView)
-            row.addView(epcView)
-            row.addView(rssiView)
-            container.addView(row)
-        }
-    }
+    // Удалено: rebuildTagsList()
 
     private val Int.dp: Int get() = (this * resources.displayMetrics.density).toInt()
 

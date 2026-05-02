@@ -1,15 +1,44 @@
-This Andoroid application for Chainway C5 allows you to quickly write data to UHF RFID tags without a specialized RFID printer.
+# RFID Manager (Chainway C5)
 
-Problem: To use an RFID tag, you need to write the RFID code to the tag and (preferably) print this code on the tag itself. Then the tag can be read by a regular barcode scanner, and it can be found in the warehouse as an RFID tag using an RFID scanner such as the Chainway C5. An RFID printer can print text on the tag and write data to the tag's memory, but RFID printers are quite expensive and bulky, so it does not make sense to buy them for RFID implementation in a small warehouse. With the Chainway C5 and this Android application, you can quickly write data to an RFID tag without using a printer.
+Профессиональное Android-приложение для работы с UHF RFID метками, оптимизированное для защищенных терминалов **Chainway C5**. Позволяет быстро программировать метки на основе штрих-кодов и выполнять высокопоисковый поиск объектов в условиях плотной расстановки (например, аптечные полки или склады с мелкими товарами).
 
-1) Print a QR/Datamatrix code on the RFID tag using a printer or marker, or simply stick a sticker with a QR/Datamatrix code on top of it.
-2) Bring the Chainway C5 close to the tag and press the trigger. The application will read the RFID tag and immediately record it as RFID in one step.
+## Основные возможности
 
-Since the software for working with UHF works with data in hex format, use codes in hex format for compatibility. For example, use tags
-E001, E002, E003...., E009, E010, E011. Names such as W001 will not work because W0 is not a hex digit.
+### 1. Scan & Write (Программирование)
+Этот режим заменяет дорогостоящие RFID-принтеры при внедрении RFID на малых и средних складах.
+*   **Один шаг**: Сканируйте QR/Штрих-код физическим курком, и приложение мгновенно запишет эти данные в память RFID-метки.
+*   **Валидация**: Строгая проверка на HEX-формат (0-9, A-F) предотвращает запись некорректных данных.
+*   **Контроль мощности**: Слайдер "Writing Power" позволяет временно снизить мощность антенны (рекомендуется 10 dBm), чтобы случайно не перезаписать соседние метки.
+*   **Лента истории**: Горизонтальная лента тегов отображает результаты последних операций (Зеленый — успех, Красный — ошибка).
 
-How to run
-1) Build with `gradlew build`
-2) Install apk on Chainway C5.
+### 2. Radar (Точный поиск меток)
+Инновационный инструмент для точечного поиска конкретной метки среди сотен других, использующий алгоритмы адаптивного сканирования и технического анализа.
 
-   
+*   **Динамическое окно мощности (Sliding Power Window)**: Радар не использует фиксированную мощность. Он непрерывно переключает мощность аппаратного передатчика в скользящем окне из 3 уровней с шагом 4 дБм (например, `26, 22, 18`). 
+    *   Если метка далеко, радар работает на максимумах (до 30 дБм).
+    *   Как только вы приближаетесь, "окно" плавно сползает вниз вплоть до 5 дБм. Это позволяет хирургически точно локализовать объект вплотную, отсекая все дальние отражения.
+*   **Умный график дистанции**: Большой график на весь экран отображает точный уровень сигнала, приведенный к идеальной дистанции (`dBm`).
+*   **EMA Анализ трендов**: На графике выводятся две линии — текущий сглаженный сигнал и медленный тренд (EMA). Область между ними закрашивается:
+    *   🟩 **Зеленым**, если вы идете в правильном направлении (сигнал растет быстрее тренда).
+    *   🟥 **Красным**, если вы прошли мимо или отдаляетесь (сигнал падает ниже тренда).
+*   **Понятный звук**: Больше никакого раздражающего "счетчика Гейгера". Сканер издает приятный позитивный звук (OK), пока вы находитесь в зеленой зоне графика, и меняет тональность на низкую (ERROR), как только вы входите в красную зону. Вы можете искать метки "вслепую", ориентируясь только на звук.
+
+### 3. Activity Log (Системный журнал)
+*   Выделенный экран для мониторинга аппаратных событий.
+*   Отображение последних 30 записей (новые сверху).
+*   Автоматическая прокрутка и детальная информация об обнаруженных EPC и ошибках оборудования.
+
+### 4. Settings (Настройки)
+*   **Регион UHF**: Выбор стандарта частот (Europe 0x04, USA 0x08 и др.). При первом запуске приложение автоматически определяет регион вашего устройства.
+*   **Hardware Reconnect**: Кнопка для быстрой перезагрузки аппаратных модулей без перезапуска приложения.
+
+## Технические особенности
+*   **Язык**: Kotlin 2.1.0 + Coroutines (асинхронная работа с железом без зависаний UI).
+*   **Архитектура**: Single Activity + Navigation Component + Shared ViewModel.
+*   **SDK**: Chainway DeviceAPI (UHF + Barcode).
+*   **UI**: Современный Material 3 интерфейс в зеленой цветовой гамме.
+
+## Как запустить
+1. Соберите проект через `gradlew assembleDebug`.
+2. Установите APK на устройство Chainway C5.
+3. При первом запуске убедитесь, что в Log появилась запись `Connected. Hardware region: 0x04` (или другой код вашего региона).
