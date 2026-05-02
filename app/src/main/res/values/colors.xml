@@ -1,6 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#3F51B5</color>
-    <color name="colorPrimaryDark">#303F9F</color>
-    <color name="colorAccent">#FF4081</color>
+    <color name="colorPrimary">#1B5E20</color>
+    <color name="colorPrimaryDark">#003300</color>
+    <color name="colorAccent">#66BB6A</color>
+
+    <color name="md_theme_primary">#2E7D32</color>
+    <color name="md_theme_onPrimary">#FFFFFF</color>
+    <color name="md_theme_primaryContainer">#C8E6C9</color>
+    <color name="md_theme_onPrimaryContainer">#1B5E20</color>
+    <color name="md_theme_secondary">#546E7A</color>
+    <color name="md_theme_onSecondary">#FFFFFF</color>
+    <color name="md_theme_secondaryContainer">#CFD8DC</color>
+    <color name="md_theme_onSecondaryContainer">#263238</color>
+    <color name="md_theme_background">#F5F5F5</color>
+    <color name="md_theme_onBackground">#1C1B1F</color>
+    <color name="md_theme_surface">#FFFFFF</color>
+    <color name="md_theme_onSurface">#1C1B1F</color>
+    <color name="md_theme_surfaceVariant">#E8F5E9</color>
+    <color name="md_theme_onSurfaceVariant">#49454F</color>
+    <color name="md_theme_error">#D32F2F</color>
+    <color name="md_theme_onError">#FFFFFF</color>
+
+    <color name="outline">#C8E6C9</color>
+    <color name="log_background">#F1F8E9</color>
+    <color name="log_text">#37474F</color>
+    <color name="header_gradient_start">#2E7D32</color>
+    <color name="header_gradient_end">#1B5E20</color>
+    <color name="status_bar">#1B5E20</color>
+    <color name="white">#FFFFFF</color>
+    <color name="white_70">#B3FFFFFF</color>
 </resources>
