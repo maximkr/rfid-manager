@@ -6,6 +6,7 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.SoundPool
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -25,15 +26,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PREFS_NAME = "uhf_settings"
-        private const val PREF_FREQ_MODE = "freq_mode"
-        private const val PREF_POWER = "power"
-        private const val DEFAULT_FREQ_MODE = 2 // Europe 865-868 MHz
-        private const val DEFAULT_POWER = 10
+        private const val PREF_FREQ_MODE = "freq_mode_id" // Use ID instead of index
+        private const val PREF_WRITE_POWER = "write_power"
+        private const val PREF_RADAR_POWER = "radar_power"
+        private const val DEFAULT_WRITE_POWER = 10
+        private const val DEFAULT_RADAR_POWER = 30
+        
+        // Frequency Mode IDs from Vendor SDK
+        const val MODE_CHINA_840_845 = 0x01
+        const val MODE_CHINA_920_925 = 0x02
+        const val MODE_EUROPE_865_868 = 0x04
+        const val MODE_USA_902_928 = 0x08
+        const val MODE_KOREA = 0x16
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -44,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private val logEntries = LinkedList<String>()
     private val historyEntries = mutableListOf<Pair<String, Boolean>>()
+    private var originalRadarPower: Int? = null
 
     // Sound
     private val soundMap = HashMap<Int, Int>()
@@ -66,6 +77,43 @@ class MainActivity : AppCompatActivity() {
         initHardware()
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == 139 || keyCode == 280) {
+            if (isInventoryRunning && originalRadarPower == null && event.repeatCount == 0) {
+                val currentPower = getRadarPower()
+                originalRadarPower = currentPower
+                val temporaryPower = (currentPower - 5).coerceAtLeast(5)
+                
+                mReader?.let {
+                    it.stopInventory()
+                    it.setPower(temporaryPower)
+                    it.startInventoryTag()
+                }
+                appendLog("Sensitivity Boost: ${temporaryPower}dBm (Trigger Hold)")
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == 139 || keyCode == 280) {
+            originalRadarPower?.let { power ->
+                if (isInventoryRunning) {
+                    mReader?.let {
+                        it.stopInventory()
+                        it.setPower(power)
+                        it.startInventoryTag()
+                    }
+                    appendLog("Restored: ${power}dBm")
+                }
+                originalRadarPower = null
+                return true
+            }
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
     private fun setupStatusObserver() {
         viewModel.statusText.observe(this) { status ->
             binding.tvGlobalStatus?.text = status
@@ -83,12 +131,19 @@ class MainActivity : AppCompatActivity() {
 
             installBarcodeDecoderCallback()
 
-            mReader?.init(this)
+            // init() without context is for all modules, consistent with vendor demo
+            mReader?.init()
             val isConnected = mReader?.connectStatus == ConnectionStatus.CONNECTED
             viewModel.setConnectionStatus(isConnected)
             
             if (isConnected) {
-                appendLog("Connected")
+                val deviceFreq = mReader?.frequencyMode ?: -1
+                appendLog("Connected. Hardware region: 0x${Integer.toHexString(deviceFreq)}")
+                
+                if (!prefs.contains(PREF_FREQ_MODE) && deviceFreq != -1) {
+                    prefs.edit().putInt(PREF_FREQ_MODE, deviceFreq).apply()
+                }
+                
                 applySavedSettings()
             } else {
                 appendLog("Cannot connect Chainway UHF module")
@@ -106,22 +161,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applySavedSettings() {
-        val freqMode = prefs.getInt(PREF_FREQ_MODE, DEFAULT_FREQ_MODE)
-        val power = prefs.getInt(PREF_POWER, DEFAULT_POWER)
-        mReader?.let {
-            it.setFrequencyMode(freqMode)
-            it.setPower(power)
+        if (prefs.contains(PREF_FREQ_MODE)) {
+            val freqMode = prefs.getInt(PREF_FREQ_MODE, -1)
+            if (freqMode != -1) {
+                mReader?.setFrequencyMode(freqMode)
+            }
         }
     }
 
-    fun saveFreqMode(mode: Int) {
-        prefs.edit().putInt(PREF_FREQ_MODE, mode).apply()
-        mReader?.setFrequencyMode(mode)
+    fun saveFreqMode(modeId: Int) {
+        prefs.edit().putInt(PREF_FREQ_MODE, modeId).apply()
+        mReader?.setFrequencyMode(modeId)
     }
 
-    fun savePower(power: Int) {
-        prefs.edit().putInt(PREF_POWER, power).apply()
-        mReader?.setPower(power)
+    fun getWritePower() = prefs.getInt(PREF_WRITE_POWER, DEFAULT_WRITE_POWER)
+    fun saveWritePower(power: Int) {
+        prefs.edit().putInt(PREF_WRITE_POWER, power).apply()
+    }
+
+    fun getRadarPower() = prefs.getInt(PREF_RADAR_POWER, DEFAULT_RADAR_POWER)
+    fun saveRadarPower(power: Int) {
+        prefs.edit().putInt(PREF_RADAR_POWER, power).apply()
+        mReader?.let {
+            if (isInventoryRunning) {
+                // Changing power during inventory often requires a restart
+                it.stopInventory()
+                it.setPower(power)
+                it.startInventoryTag()
+            } else {
+                it.setPower(power)
+            }
+        }
     }
 
     fun reconnectUhf() {
@@ -158,7 +228,8 @@ class MainActivity : AppCompatActivity() {
             val reader = mReader ?: return@launch
             var epcSize = 8
             val originalPower = reader.power
-            reader.setPower(10)
+            val targetWritePower = getWritePower()
+            reader.setPower(targetWritePower)
 
             try {
                 var currentData = reader.readData("00000000", IUHF.Bank_EPC, 2, 8)
@@ -202,17 +273,84 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- Radar ---
+    private var isInventoryRunning = false
+
+    fun startRadar(targetMask: String, onValueReceived: (Double, Int, String) -> Unit) {
+        val reader = mReader ?: return
+        val targetRadarPower = getRadarPower()
+        reader.setPower(targetRadarPower)
+        
+        reader.stopInventory()
+        Thread.sleep(100)
+        reader.setFilter(IUHF.Bank_EPC, 0, 0, "")
+        reader.setEPCMode()
+        
+        if (reader.startInventoryTag()) {
+            isInventoryRunning = true
+            val mask = targetMask.uppercase()
+            appendLog("Radar: Scan started for *$mask*")
+
+            lifecycleScope.launch(Dispatchers.IO) {
+                while (isInventoryRunning) {
+                    val info = reader.readTagFromBuffer()
+                    if (info != null) {
+                        val epc = info.epc ?: ""
+                        if (epc.isEmpty()) continue
+
+                        val rssiStr = info.rssi ?: "0"
+                        var rssiRaw = try {
+                            rssiStr.replace(Regex("[^0-9.-]"), "").toDouble()
+                        } catch (e: Exception) { 0.0 }
+                        
+                        // Auto-detect centi-dBm (like -5123 instead of -51.23)
+                        if (abs(rssiRaw) > 200.0) {
+                            rssiRaw /= 100.0
+                        }
+                        
+                        val cleanRssi = abs(rssiRaw)
+                        // User range: -30 (best) to -80 (worst)
+                        val displayRssi = when {
+                            cleanRssi != 0.0 && cleanRssi <= 30.0 -> 100
+                            cleanRssi >= 80.0 || cleanRssi == 0.0 -> 0
+                            else -> ((80.0 - cleanRssi) * 100 / 50).toInt().coerceIn(0, 100)
+                        }
+                        
+                        android.util.Log.d("RFID_SCAN", "Detected: $epc RSSI: $rssiRaw")
+
+                        withContext(Dispatchers.Main) {
+                            onValueReceived(rssiRaw, displayRssi, epc)
+                        }
+                    }
+else {
+                        Thread.sleep(10)
+                    }
+                }
+            }
+        } else {
+            appendLog("Radar Error: Failed to start Scan mode")
+        }
+    }
+
+    fun stopRadar() {
+        isInventoryRunning = false
+        originalRadarPower = null
+        mReader?.stopInventory()
+    }
+
     // --- Fragment Sync ---
 
     fun updateWriteFragmentUI(fragment: WriteFragment) {
-        fragment.appendLog("", "", logEntries)
         historyEntries.forEach { fragment.addHistoryTag(it.first, it.second) }
     }
 
+    fun updateLogFragmentUI(fragment: LogFragment) {
+        fragment.setLogs(logEntries)
+    }
+
     fun updateSettingsFragmentUI(fragment: SettingsFragment) {
-        val freqMode = prefs.getInt(PREF_FREQ_MODE, DEFAULT_FREQ_MODE)
-        val power = prefs.getInt(PREF_POWER, DEFAULT_POWER)
-        fragment.updateUI(freqMode, power)
+        val freqMode = prefs.getInt(PREF_FREQ_MODE, -1)
+        fragment.updateUI(freqMode)
     }
 
     private fun syncSettingsToFragment() {
@@ -228,8 +366,8 @@ class MainActivity : AppCompatActivity() {
             if (logEntries.size > 30) logEntries.removeAt(logEntries.size - 1)
             
             val navHost = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
-            val fragment = navHost.childFragmentManager.fragments.firstOrNull() as? WriteFragment
-            fragment?.appendLog(timestamp, message, logEntries)
+            val fragment = navHost.childFragmentManager.fragments.firstOrNull() as? LogFragment
+            fragment?.setLogs(logEntries)
         }
     }
 
@@ -278,9 +416,14 @@ class MainActivity : AppCompatActivity() {
         soundPool = null
     }
 
-    fun playSound(id: Int) {
+    fun playSound(id: Int, rate: Float = 1f) {
         val soundId = soundMap[id] ?: return
+        val pool = soundPool ?: return
         val volume = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        soundPool?.play(soundId, volume, volume, 1, 0, 1f)
+        try {
+            pool.play(soundId, volume, volume, 1, 0, rate.coerceIn(0.5f, 2.0f))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

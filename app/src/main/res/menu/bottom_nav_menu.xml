@@ -5,6 +5,14 @@
         android:icon="@drawable/ic_write"
         android:title="@string/nav_scan_write" />
     <item
+        android:id="@+id/radarFragment"
+        android:icon="@drawable/ic_rfid"
+        android:title="@string/nav_radar" />
+    <item
+        android:id="@+id/logFragment"
+        android:icon="@drawable/ic_log"
+        android:title="@string/nav_log" />
+    <item
         android:id="@+id/settingsFragment"
         android:icon="@drawable/ic_settings"
         android:title="@string/nav_settings" />

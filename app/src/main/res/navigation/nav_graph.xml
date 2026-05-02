@@ -10,6 +10,16 @@
         android:label="@string/nav_scan_write" />
 
     <fragment
+        android:id="@+id/radarFragment"
+        android:name="com.trackstudio.rfidmanager.RadarFragment"
+        android:label="@string/nav_radar" />
+
+    <fragment
+        android:id="@+id/logFragment"
+        android:name="com.trackstudio.rfidmanager.LogFragment"
+        android:label="@string/nav_log" />
+
+    <fragment
         android:id="@+id/settingsFragment"
         android:name="com.trackstudio.rfidmanager.SettingsFragment"
         android:label="@string/nav_settings" />

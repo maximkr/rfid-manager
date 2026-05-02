@@ -16,6 +16,7 @@ class WriteFragment : Fragment() {
     private var _binding: FragmentWriteBinding? = null
     private val binding get() = _binding!!
     private val mainActivity get() = activity as? MainActivity
+    private val viewModel: SharedViewModel by activityViewModels()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentWriteBinding.inflate(inflater, container, false)
@@ -25,19 +26,28 @@ class WriteFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         
+        viewModel.isConnected.observe(viewLifecycleOwner) { connected ->
+            binding.btnWriteRFID.isEnabled = connected
+        }
+        
         binding.btnWriteRFID.setOnClickListener {
             mainActivity?.performWriteRFID(binding.editCode.text.toString().trim())
+        }
+
+        binding.sliderWritePower.addOnChangeListener { _, value, fromUser ->
+            binding.tvWritePowerValue.text = getString(R.string.unit_dbm, value.toInt())
+            if (fromUser) {
+                mainActivity?.saveWritePower(value.toInt())
+            }
         }
 
         // Restore current state if any
         mainActivity?.let { activity ->
             activity.updateWriteFragmentUI(this)
+            val savedPower = activity.getWritePower()
+            binding.sliderWritePower.value = savedPower.toFloat()
+            binding.tvWritePowerValue.text = getString(R.string.unit_dbm, savedPower)
         }
-    }
-
-    fun appendLog(timestamp: String, message: String, logList: List<String>) {
-        binding.tvLog.text = logList.joinToString("\n")
-        binding.logScrollView.post { binding.logScrollView.fullScroll(View.FOCUS_UP) }
     }
 
     fun addHistoryTag(code: String, success: Boolean) {

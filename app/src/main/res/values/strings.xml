@@ -7,7 +7,20 @@
     <string name="log_disconnected">Disconnected</string>
     <string name="scan_instructions">Scan barcode with trigger, then tap Write RFID to program the tag.</string>
     <string name="nav_scan_write">Scan &amp; Write</string>
+    <string name="nav_radar">Radar</string>
+    <string name="nav_log">Log</string>
     <string name="nav_settings">Settings</string>
+    <string name="label_write_power">Writing Power (Temporary)</string>
+    <string name="label_radar_power">Search Sensitivity</string>
+    <string name="power_high">High (30)</string>
+    <string name="power_medium">Med (25)</string>
+    <string name="power_low">Low (20)</string>
+    <string name="radar_instructions">Enter target EPC and start scanning. Tags appear sorted by signal strength — the target tag is highlighted in red. Remove obstacles to move the target up the ranking.</string>
+    <string name="radar_no_tags">No tags detected</string>
+    <string name="radar_target_epc">Target EPC</string>
+    <string name="radar_start">Start Radar</string>
+    <string name="radar_stop">Stop Radar</string>
+    <string name="radar_paste_description">Paste from clipboard</string>
     <string-array name="frequency_modes">
         <item>China 920–925 MHz</item>
         <item>USA 902–928 MHz</item>

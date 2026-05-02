@@ -33,13 +33,13 @@
                 android:id="@+id/tilFreqMode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
                 android:hint="Frequency Mode"
                 app:boxCornerRadiusBottomEnd="12dp"
                 app:boxCornerRadiusBottomStart="12dp"
                 app:boxCornerRadiusTopEnd="12dp"
                 app:boxCornerRadiusTopStart="12dp"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_marginBottom="24dp">
 
                 <AutoCompleteTextView
                     android:id="@+id/spinnerFreqMode"
@@ -48,42 +48,6 @@
                     android:inputType="none"
                     android:textSize="14sp" />
             </com.google.android.material.textfield.TextInputLayout>
-
-            <!-- Power slider -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Output Power"
-                android:textSize="12sp"
-                android:textColor="@color/md_theme_onSurfaceVariant"
-                android:layout_marginBottom="4dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="24dp">
-
-                <com.google.android.material.slider.Slider
-                    android:id="@+id/sliderPower"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:valueFrom="5"
-                    android:valueTo="30"
-                    android:stepSize="1" />
-
-                <TextView
-                    android:id="@+id/tvPowerValue"
-                    android:layout_width="60dp"
-                    android:layout_height="wrap_content"
-                    android:text="0 dBm"
-                    android:textSize="14sp"
-                    android:textColor="@color/md_theme_onSurface"
-                    android:gravity="center"
-                    android:fontFamily="monospace" />
-            </LinearLayout>
 
             <!-- Reconnect button -->
             <com.google.android.material.button.MaterialButton
@@ -106,7 +70,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:padding="8dp"
-        android:text="Adjust power to 10-15 dBm for single tag writing to avoid cross-programming nearby tags. Use 30 dBm for long range scanning."
+        android:text="Adjust frequency region if you are having trouble finding tags."
         android:textColor="@color/md_theme_onSurfaceVariant"
         android:textSize="12sp" />
 

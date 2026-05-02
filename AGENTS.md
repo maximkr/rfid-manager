@@ -6,18 +6,23 @@ Android app for writing UHF RFID tags using the Chainway C5 rugged device. Scans
 
 ```
 app/src/main/java/com/trackstudio/rfidmanager/
-  MainActivity.kt          # Main entry: Host for fragments, hardware owner, shared state
-  WriteFragment.kt         # "Scan & Write" screen: barcode input, log, history
-  SettingsFragment.kt      # Configuration screen: UHF power, frequency, reconnect
-  SharedViewModel.kt       # Global status management (connected/disconnected)
-  ErrorCodeManager.kt      # Maps Chainway UHF error codes to human-readable messages
+  MainActivity.kt          # Main entry: Host for fragments, hardware owner, shared state, trigger handling
+  WriteFragment.kt         # "Scan & Write" screen: barcode input, history tags, writing power
+  RadarFragment.kt         # "Radar" screen: target search with intensity list and auto-gain sound
+  LogFragment.kt           # "Log" screen: Full-screen system activity history
+  SettingsFragment.kt      # Configuration screen: UHF frequency region, reconnect
+  RadarGraphView.kt        # Custom view: Scrolling real-time RSSI history
+  SharedViewModel.kt       # Global state: Connection status observer
+  ErrorCodeManager.kt      # Utility: UHF hardware error code mapping
 
 app/src/main/res/
   layout/activity_main.xml          # Host layout with BottomNav and Global Status Bar
-  layout/fragment_write.xml         # Scan & Write UI (instructions, input, tags, log)
-  layout/fragment_settings.xml      # Settings UI (cards for config, reconnect btn)
+  layout/fragment_write.xml         # Scan & Write UI (instructions, input, history, power slider)
+  layout/fragment_radar.xml         # Radar UI (targeting, power presets, intensity list, small graph)
+  layout/fragment_log.xml           # Activity Log UI (full-screen scrollable area)
+  layout/fragment_settings.xml      # Settings UI (UHF frequency, reconnect btn)
   layout/history_tag.xml            # Template for dynamic history chips
-  menu/bottom_nav_menu.xml          # Navigation menu (Scan & Write, Settings)
+  menu/bottom_nav_menu.xml          # Navigation menu (Scan & Write, Radar, Log, Settings)
   navigation/nav_graph.xml          # Jetpack Navigation definition
   drawable/                         # Vector icons, backgrounds
   values/colors.xml                 # Green Material 3 palette
@@ -45,34 +50,31 @@ app/src/main/res/
 ## Interface requirements & logic
 
 ### 1. Navigation & Layout
-- **Bottom Navigation**: Two tabs — "Scan & Write" and "Settings".
-- **Global Status Bar**: Fixed header in `MainActivity` showing connection status (`CONNECTED` with green dot / `DISCONNECTED` with red dot).
+- **Bottom Navigation**: Four tabs — "Scan & Write", "Radar", "Log", and "Settings".
+- **Global Status Bar**: Persistent header showing `CONNECTED` (Green) or `DISCONNECTED` (Red) status.
 
-### 2. Scan & Write (Main Screen)
-- **Instructions**: Explicit text guide for the user at the top.
-- **Data Input**: Hex-only validation (0-9, A-F). Example code `e0000001` loaded by default.
-- **History Strip**: Horizontal scrollable list of recent tags. Green = Success, Red = Error. New tags appear on the left.
-- **Activity Log**: Newest entries at the top, max 30 entries, automatic scroll to top.
+### 2. Scan & Write (Programming)
+- **Validation**: Strict HEX-only input. Prevents writing invalid data.
+- **Power Control**: Slider for "Writing Power" (5-30 dBm). Default 10 dBm. Restores original power after write.
+- **History**: Horizontal tag bar showing recent success (Green) or error (Red) results.
 
-### 3. Settings Screen
-- **UHF Config**: Dropdown for frequency mode, slider for output power (5-30 dBm).
-- **Reconnect**: Manual hardware re-initialization button.
+### 3. Radar (Target Search)
+- **Targeting**: User-defined EPC substring. Supports Paste.
+- **Multi-Target List**: Dynamic list of all detected tags sorted by dBm. Includes visual intensity bars.
+- **Dynamic Sensitivity (Auto-Gain)**: Sound frequency and pitch adapt to the local signal range (last 5s) for pinpoint accuracy.
+- **Hardware Trigger**: Holding the physical trigger button temporarily reduces power by 5 dBm for close-range precision. Power is restored on release.
+- **Decay**: Signal clears if tag is not seen for >1s. UI throttled to 10 FPS for performance.
 
-### 4. Hardware Execution (RFID Write Flow)
-- **Threading**: All hardware calls run on `Dispatchers.IO`. UI updates use `Dispatchers.Main`.
-- **Write sequence**:
-    1. Temporarily drop power to 10 dBm for safe writing.
-    2. Detect EPC size (try reading 8 words, then 6).
-    3. Validate input length against detected size.
-    4. Write data at offset 2 of EPC bank.
-    5. Read back and compare for verification.
-    6. Restore original power level in `finally` block.
-    7. Play success (ID 1) or error (ID 2) sound.
+### 4. Activity Log
+- **Dedicated View**: Full-screen log. Newest entries at the top. Max 30 entries.
 
-## Conventions
+### 5. Settings
+- **UHF Region**: Select frequency standard (Europe 0x04, USA 0x08, etc.).
+- **Hardware Reconnect**: Manual re-initialization of UHF and Barcode modules.
 
-- **Kotlin First**: Use modern Kotlin idioms (property access, `apply`, `let`, `when`).
-- **Safety**: Use nullable types for hardware instances (`barcodeDecoder?`, `mReader?`).
-- **Material 3**: Follow M3 color palette and component guidelines.
-- **Externalization**: No hardcoded strings in code; use `strings.xml`.
-- **Log Visibility**: Use `appendLog()` for user-facing feedback, managed via the Activity to persist during navigation.
+## Hardware Logic
+
+- **Language**: Kotlin + Coroutines (`lifecycleScope`, `Dispatchers.IO`).
+- **Inventory Mode**: Radar uses `startInventoryTag()` in a polling loop for maximum reliability.
+- **Power Management**: Independent power levels for Scan/Write and Radar modes.
+- **RSSI Extraction**: Handles raw dBm (e.g. -65) and centi-dBm (e.g. -6523) formats automatically.
