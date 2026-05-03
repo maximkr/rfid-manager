@@ -2,7 +2,13 @@
 
 <img src="c5.webp" align="right" width="260" hspace="16" vspace="8">
 
-A professional Android application for managing UHF RFID tags, heavily optimized for **Chainway C5** rugged handheld terminals. It allows you to rapidly program tags using barcode data and perform highly precise, radar-like searches for specific tags in densely packed environments (e.g., pharmacy shelves, retail backrooms, or warehouses).
+A professional Android application for managing UHF RFID tags, purpose-built for **Chainway C5** rugged handheld terminals. Designed for warehouse operators, pharmacy staff, and retail teams who need to deploy or locate RFID-tagged items quickly and reliably — without expensive dedicated hardware.
+
+The app integrates directly with the C5's built-in UHF antenna and physical trigger button, enabling two core workflows:
+
+**Tag Programming** — scan any QR or barcode with the physical trigger and the app instantly writes the decoded data into the RFID tag's EPC memory bank. No PC, no extra cables. One pull of the trigger programs a tag in under a second. Writing power is adjustable (5–30 dBm) to avoid accidentally overwriting neighboring tags. Every operation is logged in a live history strip — green for success, red for failure.
+
+**Tag Search (Radar)** — enter a target EPC substring and the app guides you to its exact physical location among hundreds of tags. Transmission power adjusts dynamically as you move: high power at long range to acquire the signal, dropping automatically as you get closer to filter out reflections from neighboring tags. A full-screen EMA trend graph shows two lines — the raw current signal and a smoothed slow trend — with the area between them colored green (getting closer) or red (moving away). Audio feedback mirrors the graph: a positive tone in the green zone, a warning tone in the red, enabling completely eyes-free navigation in dense shelf environments.
 
 <br clear="right">
 
