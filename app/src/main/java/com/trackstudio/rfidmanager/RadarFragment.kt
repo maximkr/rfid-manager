@@ -149,45 +149,45 @@ class RadarFragment : Fragment() {
     private val cycleTicker = object : Runnable {
         override fun run() {
             if (!isRadarRunning) return
-            
-            cycleIndex++
+
             if (cycleIndex >= 3) { // 3 powers in a sliding window
                 // End of cycle! Evaluate all tags.
                 tagMap.values.forEach { it.evaluate() }
-                
+
                 val targetTag = tagMap.entries.find { isTarget(it.key) }?.value
-                
+
                 if (targetTag == null || targetTag.rssiMap.isEmpty()) {
                     if (!isPanicRecoveryMode && windowIndex > 0) {
                         // Метка пропала. Замораживаем график и уходим в "Panic Mode".
                         isPanicRecoveryMode = true
                         windowIndex = 0 // Сразу прыгаем на [30, 24, 19]
                         cycleIndex = 0
-                        
+
                         // Делаем вид, что ничего не произошло (оставляем старый targetAccumulatedScore).
                         // Запускаем экстренный опрос. График пока стоит на паузе.
                         currentDynamicPower = allPowers[0]
+                        mainActivity?.currentScanPower?.set(currentDynamicPower)
                         mainActivity?.setDynamicRadarPower(currentDynamicPower)
                         handler.postDelayed(this, phaseDurationMs)
                         return
                     }
                 }
-                
+
                 // Если мы дошли сюда, значит либо метка найдена, либо мы уже прогнали Panic Mode и её там тоже нет.
                 isPanicRecoveryMode = false
                 targetAccumulatedScore = targetTag?.lastEvaluatedScore ?: -90f
-                
+
                 // Adjust sliding window based on target tag presence
                 val oldWindowIndex = windowIndex
                 if (targetTag != null && targetTag.rssiMap.isNotEmpty()) {
                     val highPower = allPowers[windowIndex]
                     val midPower = allPowers[windowIndex + 1]
                     val lowPower = allPowers[windowIndex + 2]
-                    
+
                     val seenHigh = targetTag.rssiMap.containsKey(highPower)
                     val seenMid = targetTag.rssiMap.containsKey(midPower)
                     val seenLow = targetTag.rssiMap.containsKey(lowPower)
-                    
+
                     if (seenHigh && seenMid && seenLow) {
                         // Видно на всех трех -> сдвигаем окно вниз (к меньшим мощностям)
                         windowIndex = (windowIndex + 1).coerceAtMost(allPowers.size - 3)
@@ -206,14 +206,19 @@ class RadarFragment : Fragment() {
                 } else if (windowIndex < oldWindowIndex) {
                     mainActivity?.appendLog("Auto-Power: Up to [${allPowers[windowIndex]}, ${allPowers[windowIndex+1]}, ${allPowers[windowIndex+2]}]")
                 }
-                
+
                 tagMap.values.forEach { it.reset() }
                 cycleIndex = 0
             }
-            
+
+            // Set power for the CURRENT phase before incrementing index
             currentDynamicPower = allPowers[windowIndex + cycleIndex]
+            mainActivity?.currentScanPower?.set(currentDynamicPower)
             mainActivity?.setDynamicRadarPower(currentDynamicPower)
-            
+
+            // Increment AFTER setting power so phase 0 gets a full window
+            cycleIndex++
+
             handler.postDelayed(this, phaseDurationMs)
         }
     }
@@ -283,19 +288,32 @@ class RadarFragment : Fragment() {
         windowIndex = 0
         cycleIndex = 0
 
-        currentDynamicPower = allPowers[windowIndex]
-        mainActivity?.setDynamicRadarPower(currentDynamicPower)
+        // Set initial power level via the IO-serialized path (no cycle ticker yet)
+        val initialPower = allPowers[0]
+        currentDynamicPower = initialPower
+        mainActivity?.currentScanPower?.set(initialPower)
+        mainActivity?.setDynamicRadarPower(initialPower)
 
+        // Start graph and sound tickers immediately so UI is responsive
         handler.post(soundTicker)
         handler.post(graphTicker)
         handler.post(cleanupRunnable)
-        handler.postDelayed(cycleTicker, phaseDurationMs) // Start cycle ticker
 
-        mainActivity?.startRadar(epc) { rawRssi, _, detectedEpc ->
+        // Launch hardware inventory; cycle ticker starts ONLY after inventory is confirmed running
+        mainActivity?.startRadar(
+            epc,
+            onInventoryReady = {
+                // Called on Main thread once startInventoryTag() has succeeded on IO thread.
+                // Safe to start the cycle ticker now — no UART race.
+                handler.postDelayed(cycleTicker, phaseDurationMs)
+            }
+        ) { rawRssi, _, detectedEpc, powerAtDetection ->
+            // powerAtDetection is the snapshot taken on the IO thread at the moment of detection —
+            // avoids the race where cycleTicker changes currentDynamicPower before this callback runs.
             val now = System.currentTimeMillis()
             val info = tagMap.getOrPut(detectedEpc) { TagCycleData(now) }
             info.lastSeen = now
-            info.recordRssi(currentDynamicPower, rawRssi)
+            info.recordRssi(powerAtDetection, rawRssi)
         }
         mainActivity?.appendLog("Searching for tags starting with *$epc*")
     }

@@ -24,6 +24,8 @@ import com.rscja.deviceapi.interfaces.IUHF
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
@@ -158,18 +160,6 @@ class MainActivity : AppCompatActivity() {
         setDynamicRadarPower(power)
     }
 
-    fun setDynamicRadarPower(power: Int) {
-        mReader?.let {
-            if (isInventoryRunning) {
-                it.stopInventory()
-                it.setPower(power)
-                it.startInventoryTag()
-            } else {
-                it.setPower(power)
-            }
-        }
-    }
-
     fun openBarcode() {
         if (barcodeDecoder?.open(this) == true) {
             BarcodeUtility.getInstance().enablePlayFailureSound(this, true)
@@ -262,25 +252,63 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --- Radar ---
-    private var isInventoryRunning = false
+    // AtomicBoolean ensures cross-thread visibility without locks
+    private val isInventoryRunning = AtomicBoolean(false)
 
-    fun startRadar(targetMask: String, onValueReceived: (Double, Int, String) -> Unit) {
+    /**
+     * Switches UHF power while inventory is active.
+     * Must always run on Dispatchers.IO to avoid concurrent UART access with the
+     * polling loop (which also runs on IO). Never call from Main thread directly.
+     */
+    fun setDynamicRadarPower(power: Int) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val reader = mReader ?: return@launch
+            if (isInventoryRunning.get()) {
+                reader.stopInventory()
+                reader.setPower(power)
+                reader.startInventoryTag()
+            } else {
+                reader.setPower(power)
+            }
+        }
+    }
+
+    /**
+     * Starts UHF inventory on IO thread.
+     * [onInventoryReady] is called on the Main thread once inventory is confirmed running —
+     * the fragment should start its cycle ticker only after this callback.
+     * [onValueReceived] delivers (rawRssi, displayRssi, epc, powerAtDetection) on Main thread.
+     */
+    fun startRadar(
+        targetMask: String,
+        onInventoryReady: () -> Unit,
+        onValueReceived: (Double, Int, String, Int) -> Unit
+    ) {
         val reader = mReader ?: return
-        val targetRadarPower = getRadarPower()
-        reader.setPower(targetRadarPower)
-        
-        reader.stopInventory()
-        Thread.sleep(100)
-        reader.setFilter(IUHF.Bank_EPC, 0, 0, "")
-        reader.setEPCMode()
-        
-        if (reader.startInventoryTag()) {
-            isInventoryRunning = true
-            val mask = targetMask.uppercase()
-            appendLog("Radar: Scan started for *$mask*")
 
-            lifecycleScope.launch(Dispatchers.IO) {
-                while (isInventoryRunning) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val targetRadarPower = getRadarPower()
+            reader.setPower(targetRadarPower)
+
+            reader.stopInventory()
+            Thread.sleep(100)
+            reader.setFilter(IUHF.Bank_EPC, 0, 0, "")
+            reader.setEPCMode()
+
+            if (reader.startInventoryTag()) {
+                isInventoryRunning.set(true)
+                val mask = targetMask.uppercase()
+                withContext(Dispatchers.Main) {
+                    appendLog("Radar: Scan started for *$mask*")
+                    // Notify fragment that inventory is confirmed running
+                    onInventoryReady()
+                }
+
+                while (isInventoryRunning.get()) {
+                    // Snapshot the current power level on this IO iteration to avoid
+                    // Main-thread race when cycleTicker changes currentDynamicPower
+                    // between tag detection and callback delivery.
+                    val powerSnapshot = currentScanPower.get()
                     val info = reader.readTagFromBuffer()
                     if (info != null) {
                         val epc = info.epc ?: ""
@@ -290,12 +318,12 @@ class MainActivity : AppCompatActivity() {
                         var rssiRaw = try {
                             rssiStr.replace(Regex("[^0-9.-]"), "").toDouble()
                         } catch (e: Exception) { 0.0 }
-                        
+
                         // Auto-detect centi-dBm (like -5123 instead of -51.23)
                         if (abs(rssiRaw) > 200.0) {
                             rssiRaw /= 100.0
                         }
-                        
+
                         val cleanRssi = abs(rssiRaw)
                         // User range: -30 (best) to -80 (worst)
                         val displayRssi = when {
@@ -303,27 +331,33 @@ class MainActivity : AppCompatActivity() {
                             cleanRssi >= 80.0 || cleanRssi == 0.0 -> 0
                             else -> ((80.0 - cleanRssi) * 100 / 50).toInt().coerceIn(0, 100)
                         }
-                        
-                        android.util.Log.d("RFID_SCAN", "Detected: $epc RSSI: $rssiRaw")
+
+                        android.util.Log.d("RFID_SCAN", "Detected: $epc RSSI: $rssiRaw @ ${powerSnapshot}dBm")
 
                         withContext(Dispatchers.Main) {
-                            onValueReceived(rssiRaw, displayRssi, epc)
+                            onValueReceived(rssiRaw, displayRssi, epc, powerSnapshot)
                         }
-                    }
-else {
+                    } else {
                         Thread.sleep(10)
                     }
                 }
+            } else {
+                withContext(Dispatchers.Main) {
+                    appendLog("Radar Error: Failed to start Scan mode")
+                }
             }
-        } else {
-            appendLog("Radar Error: Failed to start Scan mode")
         }
     }
 
+    /** Atomic power level shared between Main (cycleTicker writes) and IO (polling reads snapshot). */
+    val currentScanPower = AtomicInteger(30)
+
     fun stopRadar() {
-        isInventoryRunning = false
+        isInventoryRunning.set(false)
         originalRadarPower = null
-        mReader?.stopInventory()
+        lifecycleScope.launch(Dispatchers.IO) {
+            mReader?.stopInventory()
+        }
     }
 
     // --- Fragment Sync ---

@@ -1,44 +1,47 @@
 # RFID Manager (Chainway C5)
 
-Профессиональное Android-приложение для работы с UHF RFID метками, оптимизированное для защищенных терминалов **Chainway C5**. Позволяет быстро программировать метки на основе штрих-кодов и выполнять высокопоисковый поиск объектов в условиях плотной расстановки (например, аптечные полки или склады с мелкими товарами).
+A professional Android application for managing UHF RFID tags, heavily optimized for **Chainway C5** rugged handheld terminals. It allows you to rapidly program tags using barcode data and perform highly precise, radar-like searches for specific tags in densely packed environments (e.g., pharmacy shelves, retail backrooms, or warehouses).
 
-## Основные возможности
+![Scan & Write screen](image1.jpg)
+![Radar screen](image2.jpg)
 
-### 1. Scan & Write (Программирование)
-Этот режим заменяет дорогостоящие RFID-принтеры при внедрении RFID на малых и средних складах.
-*   **Один шаг**: Сканируйте QR/Штрих-код физическим курком, и приложение мгновенно запишет эти данные в память RFID-метки.
-*   **Валидация**: Строгая проверка на HEX-формат (0-9, A-F) предотвращает запись некорректных данных.
-*   **Контроль мощности**: Слайдер "Writing Power" позволяет временно снизить мощность антенны (рекомендуется 10 dBm), чтобы случайно не перезаписать соседние метки.
-*   **Лента истории**: Горизонтальная лента тегов отображает результаты последних операций (Зеленый — успех, Красный — ошибка).
+## Key Features
 
-### 2. Radar (Точный поиск меток)
-Инновационный инструмент для точечного поиска конкретной метки среди сотен других, использующий алгоритмы адаптивного сканирования и технического анализа.
+### 1. Scan & Write (Programming)
+This mode replaces expensive dedicated RFID printers when implementing RFID in small to medium-sized warehouses.
+*   **One-Step Operation**: Scan a QR or Barcode using the physical trigger, and the app will instantly write the decoded data into the RFID tag's EPC memory.
+*   **Validation**: Strict HEX-format validation (0-9, A-F) prevents writing corrupted data to tags.
+*   **Power Control**: A "Writing Power" slider allows you to temporarily reduce the antenna power (10 dBm recommended) to avoid accidentally overwriting neighboring tags.
+*   **History Strip**: A horizontal history bar displays the results of recent programming operations (Green for success, Red for error).
 
-*   **Динамическое окно мощности (Sliding Power Window)**: Радар не использует фиксированную мощность. Он непрерывно переключает мощность аппаратного передатчика в скользящем окне из 3 уровней с шагом 4 дБм (например, `26, 22, 18`). 
-    *   Если метка далеко, радар работает на максимумах (до 30 дБм).
-    *   Как только вы приближаетесь, "окно" плавно сползает вниз вплоть до 5 дБм. Это позволяет хирургически точно локализовать объект вплотную, отсекая все дальние отражения.
-*   **Умный график дистанции**: Большой график на весь экран отображает точный уровень сигнала, приведенный к идеальной дистанции (`dBm`).
-*   **EMA Анализ трендов**: На графике выводятся две линии — текущий сглаженный сигнал и медленный тренд (EMA). Область между ними закрашивается:
-    *   🟩 **Зеленым**, если вы идете в правильном направлении (сигнал растет быстрее тренда).
-    *   🟥 **Красным**, если вы прошли мимо или отдаляетесь (сигнал падает ниже тренда).
-*   **Понятный звук**: Больше никакого раздражающего "счетчика Гейгера". Сканер издает приятный позитивный звук (OK), пока вы находитесь в зеленой зоне графика, и меняет тональность на низкую (ERROR), как только вы входите в красную зону. Вы можете искать метки "вслепую", ориентируясь только на звук.
+### 2. Radar (Precision Tag Search)
+An innovative tool for pinpointing a specific tag among hundreds of others, utilizing adaptive scanning algorithms and technical trend analysis.
 
-### 3. Activity Log (Системный журнал)
-*   Выделенный экран для мониторинга аппаратных событий.
-*   Отображение последних 30 записей (новые сверху).
-*   Автоматическая прокрутка и детальная информация об обнаруженных EPC и ошибках оборудования.
+*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it continuously cycles the hardware transmitter power across a sliding window of 3 levels with a 4 dBm step (e.g., `26, 22, 18`). 
+    *   If the target tag is far away, the radar operates at maximum power (up to 30 dBm).
+    *   As you physically approach the tag, the "window" smoothly slides down all the way to 5 dBm. This allows you to surgically pinpoint the object at close range, completely filtering out distant reflections and neighboring tags.
+*   **Smart Distance Graph**: A large, full-screen graph visualizes the precise signal strength, mathematically normalized to an "ideal 30 dBm equivalent" distance (`dBm`).
+*   **EMA Trend Analysis**: The graph plots two lines: the fast current signal (Gray line) and a slow, smoothed trend line (Blue EMA line). The area between them is dynamically color-coded:
+    *   🟩 **Green area**: You are moving in the right direction (the current signal is rising faster than the slow trend).
+    *   🟥 **Red area**: You walked past the tag or are moving away (the current signal drops below the trend).
+*   **Directional Audio**: No more annoying "Geiger counter" clicks. The scanner emits a pleasant positive tone (OK) as long as you remain in the Green zone of the graph, and immediately drops to a low-pitch warning tone (ERROR) the moment you enter the Red zone. This allows for completely blind, audio-guided navigation.
 
-### 4. Settings (Настройки)
-*   **Регион UHF**: Выбор стандарта частот (Europe 0x04, USA 0x08 и др.). При первом запуске приложение автоматически определяет регион вашего устройства.
-*   **Hardware Reconnect**: Кнопка для быстрой перезагрузки аппаратных модулей без перезапуска приложения.
+### 3. Activity Log
+*   A dedicated screen for monitoring hardware events.
+*   Displays the last 30 log entries (newest on top).
+*   Automatic scrolling with detailed information on detected EPCs and hardware error codes.
 
-## Технические особенности
-*   **Язык**: Kotlin 2.1.0 + Coroutines (асинхронная работа с железом без зависаний UI).
-*   **Архитектура**: Single Activity + Navigation Component + Shared ViewModel.
+### 4. Settings
+*   **UHF Region**: Select your local frequency standard (Europe 0x04, USA 0x08, etc.). On first launch, the app attempts to auto-detect the current region of your device.
+*   **Hardware Reconnect**: A handy button to swiftly re-initialize the UHF and Barcode hardware modules without having to restart the entire application.
+
+## Technical Details
+*   **Language**: Kotlin 2.1.0 + Coroutines (for asynchronous, non-blocking hardware communication).
+*   **Architecture**: Single Activity + Jetpack Navigation Component + Shared ViewModel.
 *   **SDK**: Chainway DeviceAPI (UHF + Barcode).
-*   **UI**: Современный Material 3 интерфейс в зеленой цветовой гамме.
+*   **UI**: Modern Material 3 interface featuring a clean, green color palette.
 
-## Как запустить
-1. Соберите проект через `gradlew assembleDebug`.
-2. Установите APK на устройство Chainway C5.
-3. При первом запуске убедитесь, что в Log появилась запись `Connected. Hardware region: 0x04` (или другой код вашего региона).
+## How to Build & Run
+1. Build the project using `gradlew assembleDebug`.
+2. Install the generated APK on your Chainway C5 device.
+3. Upon first launch, check the Log tab to ensure you see a message like `Connected. Hardware region: 0x04` (or your respective region code).

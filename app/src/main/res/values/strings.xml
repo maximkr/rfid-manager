@@ -5,7 +5,7 @@
     <string name="log_connected">Connected</string>
     <string name="log_reconnected">Reconnected successfully</string>
     <string name="log_disconnected">Disconnected</string>
-    <string name="scan_instructions">Scan barcode with trigger, then tap Write RFID to program the tag.</string>
+    <string name="scan_instructions">Barcode scanner activates automatically. Scan a code to instantly write to RFID tag, or type a code and tap Write RFID.</string>
     <string name="nav_scan_write">Scan &amp; Write</string>
     <string name="nav_radar">Radar</string>
     <string name="nav_log">Log</string>
