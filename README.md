@@ -4,6 +4,8 @@
 
 A professional Android application for managing UHF RFID tags, heavily optimized for **Chainway C5** rugged handheld terminals. It allows you to rapidly program tags using barcode data and perform highly precise, radar-like searches for specific tags in densely packed environments (e.g., pharmacy shelves, retail backrooms, or warehouses).
 
+<br clear="right">
+
 ## Key Features
 
 ### 1. Scan & Write (Programming)
