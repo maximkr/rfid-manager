@@ -62,3 +62,6 @@ An innovative tool for pinpointing a specific tag among hundreds of others, util
 1. Build the project using `gradlew assembleDebug`.
 2. Install the generated APK on your Chainway C5 device.
 3. Upon first launch, check the Log tab to ensure you see a message like `Connected. Hardware region: 0x04` (or your respective region code).
+
+## How to Install
+Download from RuStore: https://www.rustore.ru/catalog/app/com.trackstudio.rfidmanager
