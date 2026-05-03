@@ -2,9 +2,6 @@
 
 A professional Android application for managing UHF RFID tags, heavily optimized for **Chainway C5** rugged handheld terminals. It allows you to rapidly program tags using barcode data and perform highly precise, radar-like searches for specific tags in densely packed environments (e.g., pharmacy shelves, retail backrooms, or warehouses).
 
-![Scan & Write screen](image1.jpg)
-![Radar screen](image2.jpg)
-
 ## Key Features
 
 ### 1. Scan & Write (Programming)
@@ -13,6 +10,8 @@ This mode replaces expensive dedicated RFID printers when implementing RFID in s
 *   **Validation**: Strict HEX-format validation (0-9, A-F) prevents writing corrupted data to tags.
 *   **Power Control**: A "Writing Power" slider allows you to temporarily reduce the antenna power (10 dBm recommended) to avoid accidentally overwriting neighboring tags.
 *   **History Strip**: A horizontal history bar displays the results of recent programming operations (Green for success, Red for error).
+
+<img src="image1.jpg" width="360">
 
 ### 2. Radar (Precision Tag Search)
 An innovative tool for pinpointing a specific tag among hundreds of others, utilizing adaptive scanning algorithms and technical trend analysis.
@@ -25,6 +24,8 @@ An innovative tool for pinpointing a specific tag among hundreds of others, util
     *   🟩 **Green area**: You are moving in the right direction (the current signal is rising faster than the slow trend).
     *   🟥 **Red area**: You walked past the tag or are moving away (the current signal drops below the trend).
 *   **Directional Audio**: No more annoying "Geiger counter" clicks. The scanner emits a pleasant positive tone (OK) as long as you remain in the Green zone of the graph, and immediately drops to a low-pitch warning tone (ERROR) the moment you enter the Red zone. This allows for completely blind, audio-guided navigation.
+
+<img src="image2.jpg" width="360">
 
 ### 3. Activity Log
 *   A dedicated screen for monitoring hardware events.
