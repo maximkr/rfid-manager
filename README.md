@@ -5,18 +5,29 @@ A professional Android application for managing UHF RFID tags, heavily optimized
 ## Key Features
 
 ### 1. Scan & Write (Programming)
+
+<table><tr>
+<td><img src="image1.jpg" width="260"></td>
+<td>
+
 This mode replaces expensive dedicated RFID printers when implementing RFID in small to medium-sized warehouses.
 *   **One-Step Operation**: Scan a QR or Barcode using the physical trigger, and the app will instantly write the decoded data into the RFID tag's EPC memory.
 *   **Validation**: Strict HEX-format validation (0-9, A-F) prevents writing corrupted data to tags.
 *   **Power Control**: A "Writing Power" slider allows you to temporarily reduce the antenna power (10 dBm recommended) to avoid accidentally overwriting neighboring tags.
 *   **History Strip**: A horizontal history bar displays the results of recent programming operations (Green for success, Red for error).
 
-<img src="image1.jpg" width="360">
+</td>
+</tr></table>
 
 ### 2. Radar (Precision Tag Search)
+
+<table><tr>
+<td><img src="image2.jpg" width="260"></td>
+<td>
+
 An innovative tool for pinpointing a specific tag among hundreds of others, utilizing adaptive scanning algorithms and technical trend analysis.
 
-*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it continuously cycles the hardware transmitter power across a sliding window of 3 levels with a 4 dBm step (e.g., `26, 22, 18`). 
+*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it continuously cycles the hardware transmitter power across a sliding window of 3 levels with a 4 dBm step (e.g., `26, 22, 18`).
     *   If the target tag is far away, the radar operates at maximum power (up to 30 dBm).
     *   As you physically approach the tag, the "window" smoothly slides down all the way to 5 dBm. This allows you to surgically pinpoint the object at close range, completely filtering out distant reflections and neighboring tags.
 *   **Smart Distance Graph**: A large, full-screen graph visualizes the precise signal strength, mathematically normalized to an "ideal 30 dBm equivalent" distance (`dBm`).
@@ -25,7 +36,8 @@ An innovative tool for pinpointing a specific tag among hundreds of others, util
     *   🟥 **Red area**: You walked past the tag or are moving away (the current signal drops below the trend).
 *   **Directional Audio**: No more annoying "Geiger counter" clicks. The scanner emits a pleasant positive tone (OK) as long as you remain in the Green zone of the graph, and immediately drops to a low-pitch warning tone (ERROR) the moment you enter the Red zone. This allows for completely blind, audio-guided navigation.
 
-<img src="image2.jpg" width="360">
+</td>
+</tr></table>
 
 ### 3. Activity Log
 *   A dedicated screen for monitoring hardware events.
