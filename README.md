@@ -27,7 +27,7 @@ This mode replaces expensive dedicated RFID printers when implementing RFID in s
 
 An innovative tool for pinpointing a specific tag among hundreds of others, utilizing adaptive scanning algorithms and technical trend analysis.
 
-*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it continuously cycles the hardware transmitter power across a sliding window of 3 levels with a 4 dBm step (e.g., `26, 22, 18`).
+*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it continuously cycles the hardware transmitter power across a sliding window of 3 consecutive levels drawn from a fixed ladder `[30, 24, 19, 15, 12, 10, 8, 7, 6, 5]` dBm (e.g., `30, 24, 19` at maximum range or `10, 8, 7` up close).
     *   If the target tag is far away, the radar operates at maximum power (up to 30 dBm).
     *   As you physically approach the tag, the "window" smoothly slides down all the way to 5 dBm. This allows you to surgically pinpoint the object at close range, completely filtering out distant reflections and neighboring tags.
 *   **Smart Distance Graph**: A large, full-screen graph visualizes the precise signal strength, mathematically normalized to an "ideal 30 dBm equivalent" distance (`dBm`).
