@@ -19,16 +19,17 @@ import com.rscja.barcode.BarcodeDecoder
 import com.rscja.barcode.BarcodeFactory
 import com.rscja.barcode.BarcodeUtility
 import com.rscja.deviceapi.RFIDWithUHFUART
-import com.rscja.deviceapi.interfaces.ConnectionStatus
 import com.rscja.deviceapi.interfaces.IUHF
+import com.rscja.deviceapi.interfaces.IUHFLocationCallback
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
@@ -57,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private val logEntries = LinkedList<String>()
     private val historyEntries = mutableListOf<Pair<String, Boolean>>()
     private var originalRadarPower: Int? = null
+    private val uhfMutex = Mutex()
 
     // Sound
     private val soundMap = HashMap<Int, Int>()
@@ -80,8 +82,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        // Убрали отключение курка в режиме радара. 
-        // Курок больше не перехватывается для понижения мощности.
+        // Side trigger is not intercepted; SDK/location mode owns UHF work.
+        // Let system/vendor key handling continue normally.
         return super.onKeyDown(keyCode, event)
     }
 
@@ -102,26 +104,10 @@ class MainActivity : AppCompatActivity() {
     private fun initHardware() {
         try {
             barcodeDecoder = BarcodeFactory.getInstance().barcodeDecoder
-            mReader = RFIDWithUHFUART.getInstance()
-
             installBarcodeDecoderCallback()
-
-            // init() without context is for all modules, consistent with vendor demo
-            mReader?.init()
-            val isConnected = mReader?.connectStatus == ConnectionStatus.CONNECTED
-            viewModel.setConnectionStatus(isConnected)
-            
-            if (isConnected) {
-                val deviceFreq = mReader?.frequencyMode ?: -1
-                appendLog("Connected. Hardware region: 0x${Integer.toHexString(deviceFreq)}")
-                
-                if (!prefs.contains(PREF_FREQ_MODE) && deviceFreq != -1) {
-                    prefs.edit().putInt(PREF_FREQ_MODE, deviceFreq).apply()
-                }
-                
-                applySavedSettings()
-            } else {
-                appendLog("Cannot connect Chainway UHF module")
+            appendLog("Initializing UHF module...")
+            lifecycleScope.launch(Dispatchers.IO) {
+                completeUhfInitialization("startup")
             }
         } catch (ex: Exception) {
             appendLog("Init error: $ex")
@@ -129,24 +115,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        CoroutineScope(Dispatchers.IO).launch {
+            uhfMutex.withLock {
+                mReader?.let { reader ->
+                    runCatching {
+                        if (isLocationRunning.get()) {
+                            reader.stopLocation()
+                            isLocationRunning.set(false)
+                        }
+                        reader.stopInventory()
+                        reader.free()
+                    }.onFailure { appendLog("UHF destroy cleanup error: $it") }
+                    mReader = null
+                }
+            }
+        }
         releaseSoundPool()
-        mReader?.free()
         barcodeDecoder?.close()
+        super.onDestroy()
     }
 
-    private fun applySavedSettings() {
-        if (prefs.contains(PREF_FREQ_MODE)) {
-            val freqMode = prefs.getInt(PREF_FREQ_MODE, -1)
-            if (freqMode != -1) {
-                mReader?.setFrequencyMode(freqMode)
+    private suspend fun applySavedSettings() {
+        uhfMutex.withLock {
+            if (prefs.contains(PREF_FREQ_MODE)) {
+                val freqMode = prefs.getInt(PREF_FREQ_MODE, -1)
+                if (freqMode != -1) {
+                    mReader?.setFrequencyMode(freqMode)
+                }
             }
         }
     }
 
     fun saveFreqMode(modeId: Int) {
         prefs.edit().putInt(PREF_FREQ_MODE, modeId).apply()
-        mReader?.setFrequencyMode(modeId)
+        lifecycleScope.launch(Dispatchers.IO) {
+            uhfMutex.withLock {
+                mReader?.setFrequencyMode(modeId)
+            }
+        }
     }
 
     fun getWritePower() = prefs.getInt(PREF_WRITE_POWER, DEFAULT_WRITE_POWER)
@@ -176,187 +182,209 @@ class MainActivity : AppCompatActivity() {
         appendLog("Reconnecting UHF module...")
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                mReader?.free()
-                mReader = RFIDWithUHFUART.getInstance()
-                val reader = mReader ?: return@launch
-                reader.init(this@MainActivity)
-
-                val connected = reader.connectStatus == ConnectionStatus.CONNECTED
-                viewModel.setConnectionStatus(connected)
-                
-                withContext(Dispatchers.Main) {
-                    if (connected) {
-                        appendLog("Reconnected successfully")
-                        applySavedSettings()
-                        syncSettingsToFragment()
-                    } else {
-                        appendLog("Reconnect failed")
-                    }
-                }
+                completeUhfInitialization("reconnect")
             } catch (ex: Exception) {
-                withContext(Dispatchers.Main) {
-                    appendLog("Reconnect error: $ex")
-                }
+                appendLog("Reconnect error: $ex")
             }
+        }
+    }
+
+    private suspend fun completeUhfInitialization(reason: String) {
+        val result = uhfMutex.withLock { initializeUhfLocked(reason) }
+        viewModel.setConnectionStatus(result.connected)
+
+        if (result.connected) {
+            val deviceFreq = uhfMutex.withLock { mReader?.frequencyMode ?: -1 }
+            appendLog("UHF $reason final success: initPath=${result.attempts.lastOrNull()?.initPath}, connectStatus=${result.attempts.lastOrNull()?.connectStatus}, isPowerOn=${result.attempts.lastOrNull()?.isPowerOn}, errCode=${result.attempts.lastOrNull()?.errCode}")
+            appendLog("Connected. Hardware region: 0x${Integer.toHexString(deviceFreq)}")
+            if (!prefs.contains(PREF_FREQ_MODE) && deviceFreq != -1) {
+                prefs.edit().putInt(PREF_FREQ_MODE, deviceFreq).apply()
+            }
+            applySavedSettings()
+            withContext(Dispatchers.Main) { syncSettingsToFragment() }
+        } else {
+            val lastAttempt = result.attempts.lastOrNull()
+            appendLog("UHF $reason final failure: attempts=${result.attempts.size}, initPath=${lastAttempt?.initPath}, connectStatus=${lastAttempt?.connectStatus}, isPowerOn=${lastAttempt?.isPowerOn}, errCode=${lastAttempt?.errCode}")
+        }
+    }
+
+    private suspend fun initializeUhfLocked(reason: String): UhfInitResult {
+        val previousReader = mReader?.let { ChainwayUhfReaderAdapter(it, this@MainActivity, ChainwayUhfInitStrategy.SYSTEM_POWER_CONTEXT_INIT) }
+        val controller = UhfConnectionController(
+            scannerCleaner = ChainwayScannerCleaner(this@MainActivity),
+            readerFactory = ChainwayUhfReaderFactory(this@MainActivity),
+            logHandler = { appendUhfAttemptLog(reason, it) }
+        )
+        val result = controller.initialize(previousReader)
+        mReader = (result.reader as? ChainwayUhfReaderAdapter)?.reader
+        return result
+    }
+
+    private fun appendUhfAttemptLog(reason: String, attemptLog: UhfInitAttemptLog) {
+        appendLog(
+                "UHF $reason attempt ${attemptLog.attempt}: " +
+                "isUhfWorking=${attemptLog.isUhfWorking}, " +
+                "scannerEnable=${attemptLog.scannerEnableResult}, " +
+                "scannerStop=${attemptLog.scannerStopResult}, " +
+                "scannerDisable=${attemptLog.scannerDisableResult}, " +
+                "oldFree=${attemptLog.previousReaderFreeResult ?: "not-needed"}, " +
+                "initPath=${attemptLog.initPath}, " +
+                "initResult=${attemptLog.initResult}, " +
+                "connectStatus=${attemptLog.connectStatus}, " +
+                "isPowerOn=${attemptLog.isPowerOn}, " +
+                "errCode=${attemptLog.errCode}, " +
+                "result=${attemptLog.result}, " +
+                "nextRetryDelayMs=${attemptLog.nextRetryDelayMs}"
+        )
+        if (attemptLog.cleanupExceptions.isNotEmpty()) {
+            appendLog("UHF $reason attempt ${attemptLog.attempt} non-fatal cleanup exceptions: ${attemptLog.cleanupExceptions.joinToString()}")
         }
     }
 
     fun performWriteRFID(code: String) {
+        val initialTarget = try {
+            EpcTargetNormalizer.normalize(code)
+        } catch (ex: IllegalArgumentException) {
+            appendLog("Write rejected: ${ex.message}")
+            addHistoryTag(code, false)
+            playSound(2)
+            return
+        }
+
         lifecycleScope.launch(Dispatchers.IO) {
-            val reader = mReader ?: return@launch
-            var epcSize = 8
-            val originalPower = reader.power
-            val targetWritePower = getWritePower()
-            reader.setPower(targetWritePower)
+            val outcome = uhfMutex.withLock {
+                val reader = mReader ?: return@launch
+                var epcSize = 8
+                val originalPower = reader.power
+                val targetWritePower = getWritePower()
+                reader.setPower(targetWritePower)
 
-            try {
-                var currentData = reader.readData("00000000", IUHF.Bank_EPC, 2, 8)
-                if (currentData == null) {
-                    currentData = reader.readData("00000000", IUHF.Bank_EPC, 2, 6)
-                    if (currentData != null) epcSize = 6
-                }
+                try {
+                    var currentData = reader.readData("00000000", IUHF.Bank_EPC, 2, 8)
+                    if (currentData == null) {
+                        currentData = reader.readData("00000000", IUHF.Bank_EPC, 2, 6)
+                        if (currentData != null) epcSize = 6
+                    }
 
-                if (code.length > 4 * epcSize) {
-                    appendLog("Error: Code too long")
-                    addHistoryTag(code, false)
-                    playSound(2)
-                    return@launch
-                }
+                    val target = try {
+                        EpcTargetNormalizer.normalize(initialTarget.label, epcSize)
+                    } catch (ex: IllegalArgumentException) {
+                        return@withLock WriteOutcome("Write rejected: ${ex.message}", initialTarget.label, false)
+                    }
 
-                val format = "%-${4 * epcSize}s"
-                val dataToWrite = String.format(format, code).replace(' ', '0')
-                val result = reader.writeData("00000000", IUHF.Bank_EPC, 2, epcSize, dataToWrite)
-
-                withContext(Dispatchers.Main) {
+                    val result = reader.writeData("00000000", IUHF.Bank_EPC, 2, epcSize, target.paddedHex)
                     if (!result) {
-                        appendLog("Write error: ${ErrorCodeManager.getMessage(reader.errCode)}")
-                        addHistoryTag(code, false)
-                        playSound(2)
+                        WriteOutcome("Write error: ${ErrorCodeManager.getMessage(reader.errCode)}", target.label, false)
                     } else {
                         val verifyData = reader.readData("00000000", IUHF.Bank_EPC, 2, epcSize)
-                        if (verifyData != null && verifyData.startsWith(code, ignoreCase = true)) {
-                            appendLog("SUCCESS ${code.lowercase()}")
-                            addHistoryTag(code, true)
-                            playSound(1)
+                        if (verifyData != null && verifyData.startsWith(target.label, ignoreCase = true)) {
+                            WriteOutcome("SUCCESS ${target.label.lowercase()}", target.label, true)
                         } else {
-                            appendLog("Verification failed")
-                            addHistoryTag(code, false)
-                            playSound(2)
+                            WriteOutcome("Verification failed", target.label, false)
                         }
                     }
+                } finally {
+                    reader.setPower(originalPower)
                 }
-            } finally {
-                reader.setPower(originalPower)
+            }
+
+            withContext(Dispatchers.Main) {
+                appendLog(outcome.message)
+                addHistoryTag(outcome.label, outcome.success)
+                playSound(if (outcome.success) 1 else 2)
             }
         }
     }
+
+    private data class WriteOutcome(
+        val message: String,
+        val label: String,
+        val success: Boolean
+    )
 
     // --- Radar ---
-    // AtomicBoolean ensures cross-thread visibility without locks
-    private val isInventoryRunning = AtomicBoolean(false)
+    private val isLocationRunning = AtomicBoolean(false)
 
-    /**
-     * Switches UHF power while inventory is active.
-     * Must always run on Dispatchers.IO to avoid concurrent UART access with the
-     * polling loop (which also runs on IO). Never call from Main thread directly.
-     */
+    /** Updates idle locate power without interrupting an active Chainway location session. */
     fun setDynamicRadarPower(power: Int) {
         lifecycleScope.launch(Dispatchers.IO) {
-            val reader = mReader ?: return@launch
-            if (isInventoryRunning.get()) {
-                reader.stopInventory()
-                reader.setPower(power)
-                reader.startInventoryTag()
-            } else {
-                reader.setPower(power)
+            uhfMutex.withLock {
+                val reader = mReader ?: return@withLock
+                if (!isLocationRunning.get()) {
+                    reader.setPower(power)
+                }
             }
         }
     }
 
-    /**
-     * Starts UHF inventory on IO thread.
-     * [onInventoryReady] is called on the Main thread once inventory is confirmed running —
-     * the fragment should start its cycle ticker only after this callback.
-     * [onValueReceived] delivers (rawRssi, displayRssi, epc, powerAtDetection) on Main thread.
-     */
     fun startRadar(
         targetMask: String,
-        onInventoryReady: () -> Unit,
-        onValueReceived: (Double, Int, String, Int) -> Unit
+        onStartResult: (Boolean) -> Unit,
+        onLocationValue: (Int, Boolean) -> Unit
     ) {
-        val reader = mReader ?: return
+        val target = try {
+            EpcTargetNormalizer.normalize(targetMask)
+        } catch (ex: IllegalArgumentException) {
+            appendLog("Radar rejected: ${ex.message}")
+            onStartResult(false)
+            return
+        }
 
         lifecycleScope.launch(Dispatchers.IO) {
-            val targetRadarPower = getRadarPower()
-            reader.setPower(targetRadarPower)
+            val started = uhfMutex.withLock {
+                val reader = mReader ?: return@withLock false
+                val targetRadarPower = getRadarPower()
+                originalRadarPower = reader.power
+                reader.setPower(targetRadarPower)
 
-            reader.stopInventory()
-            Thread.sleep(100)
-            reader.setFilter(IUHF.Bank_EPC, 0, 0, "")
-            reader.setEPCMode()
+                val locationStarted = reader.startLocation(
+                    this@MainActivity,
+                    target.label,
+                    IUHF.Bank_EPC,
+                    32,
+                    object : IUHFLocationCallback {
+                        override fun getLocationValue(value: Int, found: Boolean) {
+                            lifecycleScope.launch(Dispatchers.Main) {
+                                onLocationValue(value.coerceIn(0, 100), found)
+                            }
+                        }
+                    }
+                )
 
-            if (reader.startInventoryTag()) {
-                isInventoryRunning.set(true)
-                val mask = targetMask.uppercase()
-                withContext(Dispatchers.Main) {
-                    appendLog("Radar: Scan started for *$mask*")
-                    // Notify fragment that inventory is confirmed running
-                    onInventoryReady()
+                if (locationStarted) {
+                    isLocationRunning.set(true)
+                } else {
+                    val savedPower = originalRadarPower
+                    originalRadarPower = null
+                    savedPower?.let { reader.setPower(it) }
                 }
 
-                while (isInventoryRunning.get()) {
-                    // Snapshot the current power level on this IO iteration to avoid
-                    // Main-thread race when cycleTicker changes currentDynamicPower
-                    // between tag detection and callback delivery.
-                    val powerSnapshot = currentScanPower.get()
-                    val info = reader.readTagFromBuffer()
-                    if (info != null) {
-                        val epc = info.epc ?: ""
-                        if (epc.isEmpty()) continue
+                locationStarted
+            }
 
-                        val rssiStr = info.rssi ?: "0"
-                        var rssiRaw = try {
-                            rssiStr.replace(Regex("[^0-9.-]"), "").toDouble()
-                        } catch (e: Exception) { 0.0 }
-
-                        // Auto-detect centi-dBm (like -5123 instead of -51.23)
-                        if (abs(rssiRaw) > 200.0) {
-                            rssiRaw /= 100.0
-                        }
-
-                        val cleanRssi = abs(rssiRaw)
-                        // User range: -30 (best) to -80 (worst)
-                        val displayRssi = when {
-                            cleanRssi != 0.0 && cleanRssi <= 30.0 -> 100
-                            cleanRssi >= 80.0 || cleanRssi == 0.0 -> 0
-                            else -> ((80.0 - cleanRssi) * 100 / 50).toInt().coerceIn(0, 100)
-                        }
-
-                        android.util.Log.d("RFID_SCAN", "Detected: $epc RSSI: $rssiRaw @ ${powerSnapshot}dBm")
-
-                        withContext(Dispatchers.Main) {
-                            onValueReceived(rssiRaw, displayRssi, epc, powerSnapshot)
-                        }
-                    } else {
-                        Thread.sleep(10)
-                    }
+            if (started) {
+                withContext(Dispatchers.Main) {
+                    appendLog("Radar: Locate started for *${target.label}*")
+                    onStartResult(true)
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    appendLog("Radar Error: Failed to start Scan mode")
+                    appendLog("Radar Error: Failed to start Locate mode")
+                    onStartResult(false)
                 }
             }
         }
     }
 
-    /** Atomic power level shared between Main (cycleTicker writes) and IO (polling reads snapshot). */
-    val currentScanPower = AtomicInteger(30)
-
     fun stopRadar() {
-        isInventoryRunning.set(false)
-        originalRadarPower = null
         lifecycleScope.launch(Dispatchers.IO) {
-            mReader?.stopInventory()
+            uhfMutex.withLock {
+                val reader = mReader ?: return@withLock
+                isLocationRunning.set(false)
+                reader.stopLocation()
+                originalRadarPower?.let { reader.setPower(it) }
+                originalRadarPower = null
+            }
         }
     }
 
