@@ -14,7 +14,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import java.util.Locale
-import android.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
@@ -32,6 +31,9 @@ class RadarFragment : Fragment() {
     private var targetAccumulatedScore = -90f
     private var emaSlowScore = -90f
     private val handler = Handler(Looper.getMainLooper())
+    private var powerController = RadarPowerWindowController()
+    private var activeRadarPower = 30
+    private var powerPhaseCount = 0
 
     private val soundTicker = object : Runnable {
         override fun run() {
@@ -57,20 +59,18 @@ class RadarFragment : Fragment() {
     private val graphTicker = object : Runnable {
         override fun run() {
             if (isRadarRunning) {
-                val radarPower = mainActivity?.getRadarPower() ?: 30
-
                 if (accumulatedScore == -90f && emaSlowScore == -90f) {
                     emaSlowScore = accumulatedScore
                 } else {
                     emaSlowScore = (0.02f * accumulatedScore) + (0.98f * emaSlowScore)
                 }
 
-                binding.radarGraph.addValue(accumulatedScore, radarPower, radarPower)
+                binding.radarGraph.addValue(accumulatedScore, powerController.displayPower())
 
                 if (accumulatedScore > -89f) {
                     binding.tvOverlayScore.visibility = View.VISIBLE
                     binding.tvOverlayScore.text = String.format(Locale.US, "%.1f dBm", accumulatedScore)
-                    binding.tvOverlayScore.setTextColor(Color.parseColor("#00E676"))
+                    binding.tvOverlayScore.setTextColor(ContextCompat.getColor(requireContext(), R.color.md_theme_primary))
                 } else {
                     binding.tvOverlayScore.visibility = View.GONE
                 }
@@ -80,6 +80,39 @@ class RadarFragment : Fragment() {
                 
                 handler.postDelayed(this, 50) // Fast graph updates for smoothness
             }
+        }
+    }
+
+    private val powerTicker = object : Runnable {
+        override fun run() {
+            if (!isRadarRunning) return
+
+            powerPhaseCount++
+            activeRadarPower = if (powerController.isRecovering()) {
+                powerPhaseCount = 0
+                powerController.advancePhase()
+            } else if (powerPhaseCount >= POWER_WINDOW_SIZE) {
+                val oldWindow = powerController.currentWindow()
+                val decision = powerController.evaluateWindow()
+                val newWindow = powerController.currentWindow()
+                powerPhaseCount = 0
+
+                when (decision) {
+                    RadarPowerDecision.MOVED_LOWER -> mainActivity?.appendLog("Auto-Power: Down to ${newWindow.joinToString(prefix = "[", postfix = "]")}")
+                    RadarPowerDecision.MOVED_HIGHER -> mainActivity?.appendLog("Auto-Power: Up to ${newWindow.joinToString(prefix = "[", postfix = "]")}")
+                    RadarPowerDecision.RECOVERING_HIGHER -> mainActivity?.appendLog("Auto-Power: Recovering upward from ${activeRadarPower} dBm")
+                    RadarPowerDecision.KEPT -> if (oldWindow != newWindow) {
+                        mainActivity?.appendLog("Auto-Power: ${newWindow.joinToString(prefix = "[", postfix = "]")}")
+                    }
+                }
+
+                powerController.currentPower()
+            } else {
+                powerController.advancePhase()
+            }
+
+            mainActivity?.setActiveRadarPower(activeRadarPower)
+            handler.postDelayed(this, POWER_PHASE_DURATION_MS)
         }
     }
     
@@ -132,6 +165,9 @@ class RadarFragment : Fragment() {
         accumulatedScore = -90f
         targetAccumulatedScore = -90f
         emaSlowScore = -90f
+        powerController = RadarPowerWindowController()
+        activeRadarPower = powerController.currentPower()
+        powerPhaseCount = 0
 
         activity.startRadar(
             target.label,
@@ -139,10 +175,12 @@ class RadarFragment : Fragment() {
                 binding.btnToggleRadar.isEnabled = true
                 if (started) {
                     isRadarRunning = true
+                    activity.setActiveRadarPower(activeRadarPower)
                     binding.btnToggleRadar.setText(R.string.radar_stop)
                     binding.tvOverlayScore.visibility = View.VISIBLE
                     handler.post(soundTicker)
                     handler.post(graphTicker)
+                    handler.postDelayed(powerTicker, POWER_PHASE_DURATION_MS)
                 } else {
                     isRadarRunning = false
                     binding.btnToggleRadar.setText(R.string.radar_start)
@@ -152,6 +190,7 @@ class RadarFragment : Fragment() {
                 }
             }
         ) { locationValue, found ->
+            powerController.recordDetection(activeRadarPower, found)
             targetAccumulatedScore = if (found) {
                 (-90f + locationValue.coerceIn(0, 100) * 0.8f).coerceIn(-90f, -10f)
             } else {
@@ -165,6 +204,7 @@ class RadarFragment : Fragment() {
         isRadarRunning = false
         handler.removeCallbacks(soundTicker)
         handler.removeCallbacks(graphTicker)
+        handler.removeCallbacks(powerTicker)
         binding.btnToggleRadar.setText(R.string.radar_start)
         binding.editTargetEpc.isEnabled = true
         binding.btnPaste.isEnabled = true
@@ -176,6 +216,11 @@ class RadarFragment : Fragment() {
     // Удалено: rebuildTagsList()
 
     private val Int.dp: Int get() = (this * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val POWER_WINDOW_SIZE = 3
+        private const val POWER_PHASE_DURATION_MS = 1_000L
+    }
 
     override fun onDestroyView() {
         super.onDestroyView()

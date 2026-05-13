@@ -329,6 +329,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun setActiveRadarPower(power: Int) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            uhfMutex.withLock {
+                val reader = mReader ?: return@withLock
+                reader.setPower(power)
+            }
+        }
+    }
+
     fun startRadar(
         targetMask: String,
         onStartResult: (Boolean) -> Unit,
