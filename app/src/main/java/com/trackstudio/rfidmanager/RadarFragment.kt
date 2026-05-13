@@ -19,7 +19,6 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.trackstudio.rfidmanager.databinding.FragmentRadarBinding
-import kotlin.math.abs
 
 class RadarFragment : Fragment() {
 
@@ -33,66 +32,12 @@ class RadarFragment : Fragment() {
     private var targetAccumulatedScore = -90f
     private var emaSlowScore = -90f
     private val handler = Handler(Looper.getMainLooper())
-    
-    private val allPowers = intArrayOf(30, 24, 19, 15, 12, 10, 8, 7, 6, 5)
-    private var windowIndex = 0
-    private var cycleIndex = 0
-    private var currentDynamicPower = 30
-    private val phaseDurationMs = 180L
-
-    @Volatile
-    private var targetEpc = ""
-
-    private class TagCycleData(var lastSeen: Long) {
-        val rssiMap = mutableMapOf<Int, Double>()
-        var lastEvaluatedScore: Float = 0f
-        
-        fun recordRssi(power: Int, rssi: Double) {
-            rssiMap[power] = rssi
-        }
-        
-        fun evaluate() {
-            if (rssiMap.isNotEmpty()) {
-                val lowestPowerEntry = rssiMap.minByOrNull { it.key }
-                if (lowestPowerEntry != null) {
-                    val lowestPower = lowestPowerEntry.key
-                    val lowestRssi = lowestPowerEntry.value
-                    
-                    // Приводим сигнал к "Эквивалентной мощности" (как если бы мы читали на 30 дБм)
-                    val actualRssi = -abs(lowestRssi) // Гарантируем, что сырой RSSI всегда отрицательный
-                    val powerDrop = 30 - lowestPower
-                    
-                    // Физика отражения: падение мощности передатчика на 1 дБм дает
-                    // падение мощности отраженного сигнала тоже на 1 дБм (в линейном режиме)
-                    val equivalentRssi = actualRssi + powerDrop
-                    
-                    // Исключаем неадекватно положительные значения из-за сильного сигнала в упор (макс -10 dBm)
-                    lastEvaluatedScore = equivalentRssi.toFloat().coerceAtMost(-10f)
-                }
-            } else {
-                // Если метка пропала, плавно уводим сигнал вниз (в сторону -90 dBm)
-                if (lastEvaluatedScore == 0f) lastEvaluatedScore = -90f
-                lastEvaluatedScore = (lastEvaluatedScore - 5f).coerceAtLeast(-90f)
-            }
-        }
-        
-        fun reset() {
-            rssiMap.clear()
-        }
-    }
-
-    private val tagMap = LinkedHashMap<String, TagCycleData>()
-
-    private fun isTarget(epc: String): Boolean {
-        if (targetEpc.isEmpty()) return false
-        return epc.contains(targetEpc, ignoreCase = true)
-    }
 
     private val soundTicker = object : Runnable {
         override fun run() {
             if (!isRadarRunning) return
             
-            if (accumulatedScore > -88f && !isPanicRecoveryMode) {
+            if (accumulatedScore > -88f) {
                 // Пикаем OK, если находимся в зеленой зоне (сигнал растет или выше среднего)
                 if (accumulatedScore >= emaSlowScore) {
                     mainActivity?.playSound(1, 1.0f) // Barcode beep
@@ -112,29 +57,24 @@ class RadarFragment : Fragment() {
     private val graphTicker = object : Runnable {
         override fun run() {
             if (isRadarRunning) {
-                // НЕ рисуем график, если мы в состоянии "паники"
-                if (!isPanicRecoveryMode) {
-                    val maxP = allPowers[windowIndex]
-                    val minP = allPowers[windowIndex + 2]
-                    
-                    // Синхронизируем медленную среднюю для звука с тем, как она считается в графике
-                    if (accumulatedScore == -90f && emaSlowScore == -90f) {
-                        emaSlowScore = accumulatedScore
-                    } else {
-                        emaSlowScore = (0.02f * accumulatedScore) + (0.98f * emaSlowScore)
-                    }
-                    
-                    binding.radarGraph.addValue(accumulatedScore, maxP, minP)
-                    
-                    if (accumulatedScore > -89f) {
-                        binding.tvOverlayScore.visibility = View.VISIBLE
-                        binding.tvOverlayScore.text = String.format(Locale.US, "%.1f dBm", accumulatedScore)
-                        binding.tvOverlayScore.setTextColor(Color.parseColor("#00E676")) // Всегда зеленый
-                    } else {
-                        binding.tvOverlayScore.visibility = View.GONE
-                    }
+                val radarPower = mainActivity?.getRadarPower() ?: 30
+
+                if (accumulatedScore == -90f && emaSlowScore == -90f) {
+                    emaSlowScore = accumulatedScore
+                } else {
+                    emaSlowScore = (0.02f * accumulatedScore) + (0.98f * emaSlowScore)
                 }
-                
+
+                binding.radarGraph.addValue(accumulatedScore, radarPower, radarPower)
+
+                if (accumulatedScore > -89f) {
+                    binding.tvOverlayScore.visibility = View.VISIBLE
+                    binding.tvOverlayScore.text = String.format(Locale.US, "%.1f dBm", accumulatedScore)
+                    binding.tvOverlayScore.setTextColor(Color.parseColor("#00E676"))
+                } else {
+                    binding.tvOverlayScore.visibility = View.GONE
+                }
+
                 // Smoothly interpolate current dBm to target dBm
                 accumulatedScore += (targetAccumulatedScore - accumulatedScore) * 0.6f
                 
@@ -143,98 +83,6 @@ class RadarFragment : Fragment() {
         }
     }
     
-    // Флаг того, что метка пропала и мы делаем экстренный цикл на диапазоне [30, 24, 19]
-    private var isPanicRecoveryMode = false
-
-    private val cycleTicker = object : Runnable {
-        override fun run() {
-            if (!isRadarRunning) return
-
-            if (cycleIndex >= 3) { // 3 powers in a sliding window
-                // End of cycle! Evaluate all tags.
-                tagMap.values.forEach { it.evaluate() }
-
-                val targetTag = tagMap.entries.find { isTarget(it.key) }?.value
-
-                if (targetTag == null || targetTag.rssiMap.isEmpty()) {
-                    if (!isPanicRecoveryMode && windowIndex > 0) {
-                        // Метка пропала. Замораживаем график и уходим в "Panic Mode".
-                        isPanicRecoveryMode = true
-                        windowIndex = 0 // Сразу прыгаем на [30, 24, 19]
-                        cycleIndex = 0
-
-                        // Делаем вид, что ничего не произошло (оставляем старый targetAccumulatedScore).
-                        // Запускаем экстренный опрос. График пока стоит на паузе.
-                        currentDynamicPower = allPowers[0]
-                        mainActivity?.currentScanPower?.set(currentDynamicPower)
-                        mainActivity?.setDynamicRadarPower(currentDynamicPower)
-                        handler.postDelayed(this, phaseDurationMs)
-                        return
-                    }
-                }
-
-                // Если мы дошли сюда, значит либо метка найдена, либо мы уже прогнали Panic Mode и её там тоже нет.
-                isPanicRecoveryMode = false
-                targetAccumulatedScore = targetTag?.lastEvaluatedScore ?: -90f
-
-                // Adjust sliding window based on target tag presence
-                val oldWindowIndex = windowIndex
-                if (targetTag != null && targetTag.rssiMap.isNotEmpty()) {
-                    val highPower = allPowers[windowIndex]
-                    val midPower = allPowers[windowIndex + 1]
-                    val lowPower = allPowers[windowIndex + 2]
-
-                    val seenHigh = targetTag.rssiMap.containsKey(highPower)
-                    val seenMid = targetTag.rssiMap.containsKey(midPower)
-                    val seenLow = targetTag.rssiMap.containsKey(lowPower)
-
-                    if (seenHigh && seenMid && seenLow) {
-                        // Видно на всех трех -> сдвигаем окно вниз (к меньшим мощностям)
-                        windowIndex = (windowIndex + 1).coerceAtMost(allPowers.size - 3)
-                    } else if (!seenMid) {
-                        // Не видно на средней (или вообще пропала) -> сдвигаем окно вверх (к бОльшим мощностям)
-                        windowIndex = (windowIndex - 1).coerceAtLeast(0)
-                    }
-                    // Иначе (видно на высокой и средней, но не на низкой) -> остаемся на текущем уровне
-                } else {
-                    // Метка вообще не прочиталась в этом цикле -> возвращаемся к бОльшим мощностям
-                    windowIndex = (windowIndex - 1).coerceAtLeast(0)
-                }
-
-                if (windowIndex > oldWindowIndex) {
-                    mainActivity?.appendLog("Auto-Power: Down to [${allPowers[windowIndex]}, ${allPowers[windowIndex+1]}, ${allPowers[windowIndex+2]}]")
-                } else if (windowIndex < oldWindowIndex) {
-                    mainActivity?.appendLog("Auto-Power: Up to [${allPowers[windowIndex]}, ${allPowers[windowIndex+1]}, ${allPowers[windowIndex+2]}]")
-                }
-
-                tagMap.values.forEach { it.reset() }
-                cycleIndex = 0
-            }
-
-            // Set power for the CURRENT phase before incrementing index
-            currentDynamicPower = allPowers[windowIndex + cycleIndex]
-            mainActivity?.currentScanPower?.set(currentDynamicPower)
-            mainActivity?.setDynamicRadarPower(currentDynamicPower)
-
-            // Increment AFTER setting power so phase 0 gets a full window
-            cycleIndex++
-
-            handler.postDelayed(this, phaseDurationMs)
-        }
-    }
-
-    private val cleanupRunnable = object : Runnable {
-        override fun run() {
-            if (!isRadarRunning) return
-            val now = System.currentTimeMillis()
-            val toRemove = tagMap.filter { now - it.value.lastSeen > 2000 }.keys
-            if (toRemove.isNotEmpty()) {
-                toRemove.forEach { tagMap.remove(it) }
-            }
-            handler.postDelayed(this, 1000)
-        }
-    }
-
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentRadarBinding.inflate(inflater, container, false)
         return binding.root
@@ -268,62 +116,55 @@ class RadarFragment : Fragment() {
     }
 
     private fun startRadar() {
-        val epc = binding.editTargetEpc.text.toString().trim()
-        if (epc.isEmpty()) {
-            mainActivity?.appendLog("Please enter a target EPC")
+        val activity = mainActivity ?: return
+        val target = try {
+            EpcTargetNormalizer.normalize(binding.editTargetEpc.text.toString())
+        } catch (ex: IllegalArgumentException) {
+            activity.appendLog("Radar rejected: ${ex.message}")
             return
         }
 
-        isRadarRunning = true
-        targetEpc = epc.uppercase()
-        binding.btnToggleRadar.setText(R.string.radar_stop)
+        binding.btnToggleRadar.isEnabled = false
         binding.editTargetEpc.isEnabled = false
         binding.btnPaste.isEnabled = false
-        tagMap.clear()
         binding.radarGraph.clear()
         binding.tvOverlayScore.visibility = View.GONE
         accumulatedScore = -90f
         targetAccumulatedScore = -90f
         emaSlowScore = -90f
-        windowIndex = 0
-        cycleIndex = 0
 
-        // Set initial power level via the IO-serialized path (no cycle ticker yet)
-        val initialPower = allPowers[0]
-        currentDynamicPower = initialPower
-        mainActivity?.currentScanPower?.set(initialPower)
-        mainActivity?.setDynamicRadarPower(initialPower)
-
-        // Start graph and sound tickers immediately so UI is responsive
-        handler.post(soundTicker)
-        handler.post(graphTicker)
-        handler.post(cleanupRunnable)
-
-        // Launch hardware inventory; cycle ticker starts ONLY after inventory is confirmed running
-        mainActivity?.startRadar(
-            epc,
-            onInventoryReady = {
-                // Called on Main thread once startInventoryTag() has succeeded on IO thread.
-                // Safe to start the cycle ticker now — no UART race.
-                handler.postDelayed(cycleTicker, phaseDurationMs)
+        activity.startRadar(
+            target.label,
+            onStartResult = { started ->
+                binding.btnToggleRadar.isEnabled = true
+                if (started) {
+                    isRadarRunning = true
+                    binding.btnToggleRadar.setText(R.string.radar_stop)
+                    binding.tvOverlayScore.visibility = View.VISIBLE
+                    handler.post(soundTicker)
+                    handler.post(graphTicker)
+                } else {
+                    isRadarRunning = false
+                    binding.btnToggleRadar.setText(R.string.radar_start)
+                    binding.editTargetEpc.isEnabled = true
+                    binding.btnPaste.isEnabled = true
+                    binding.tvOverlayScore.visibility = View.GONE
+                }
             }
-        ) { rawRssi, _, detectedEpc, powerAtDetection ->
-            // powerAtDetection is the snapshot taken on the IO thread at the moment of detection —
-            // avoids the race where cycleTicker changes currentDynamicPower before this callback runs.
-            val now = System.currentTimeMillis()
-            val info = tagMap.getOrPut(detectedEpc) { TagCycleData(now) }
-            info.lastSeen = now
-            info.recordRssi(powerAtDetection, rawRssi)
+        ) { locationValue, found ->
+            targetAccumulatedScore = if (found) {
+                (-90f + locationValue.coerceIn(0, 100) * 0.8f).coerceIn(-90f, -10f)
+            } else {
+                (targetAccumulatedScore - 5f).coerceAtLeast(-90f)
+            }
         }
-        mainActivity?.appendLog("Searching for tags starting with *$epc*")
+        activity.appendLog("Searching for tag ${target.label}")
     }
 
     private fun stopRadar() {
         isRadarRunning = false
         handler.removeCallbacks(soundTicker)
         handler.removeCallbacks(graphTicker)
-        handler.removeCallbacks(cleanupRunnable)
-        handler.removeCallbacks(cycleTicker)
         binding.btnToggleRadar.setText(R.string.radar_start)
         binding.editTargetEpc.isEnabled = true
         binding.btnPaste.isEnabled = true
