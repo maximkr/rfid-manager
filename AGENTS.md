@@ -9,6 +9,9 @@ app/src/main/java/com/trackstudio/rfidmanager/
   MainActivity.kt          # Main entry: Host for fragments, hardware owner, shared state, trigger handling
   WriteFragment.kt         # "Scan & Write" screen: barcode input, history tags, writing power
   RadarFragment.kt         # "Radar" screen: target search with EMA trend graph and adaptive sound
+  ChainwayUhfAdapters.kt   # DeviceAPI adapters for UHF init and scanner cleanup
+  EpcTargetNormalizer.kt   # EPC input normalization, hex validation, and zero-padding
+  UhfConnectionController.kt # UHF startup cleanup/retry orchestration
   LogFragment.kt           # "Log" screen: Full-screen system activity history
   SettingsFragment.kt      # Configuration screen: UHF frequency region, reconnect
   RadarGraphView.kt        # Custom view: Scrolling real-time RSSI trend graph (fast line + EMA slow line)
@@ -45,8 +48,11 @@ app/src/main/res/
 ## Key hardware APIs (from DeviceAPI AAR)
 
 - `RFIDWithUHFUART` — UHF reader/writer (init, readData, writeData, setPower, getPower, getErrCode)
+- `RFIDWithUHFUART.startLocation` / `stopLocation` — SDK locate mode used by Radar
 - `BarcodeDecoder` / `BarcodeFactory` — barcode scanner (open, setDecodeCallback, close)
+- `ScannerUtility` — stops the vendor UHF scanner function before direct SDK initialization
 - `IUHF.Bank_EPC` — EPC memory bank constant
+- `IUHFLocationCallback` — location signal callback used by Radar
 - `UhfBase.ErrorCode.*` — error code constants
 
 ## Interface requirements & logic
@@ -60,36 +66,34 @@ app/src/main/res/
 
 **Algorithm**:
 1. **Input**: Barcode scan (auto) or manual text input — a hex string to write.
-2. **EPC Size Detection**: Read the current tag's EPC bank to determine its size (6 or 8 words = 12 or 16 hex chars). Abort if tag unreadable.
-3. **Length Check**: Verify the hex code length does not exceed the detected EPC bank size. No hex format validation is performed — non-hex characters are passed to hardware as-is.
-4. **Zero-Padding**: Right-pad the code with zeros (`0`) to fill the entire EPC bank size (using `String.format` with space-to-zero replacement).
-5. **Power Setup**: Temporarily set UHF power to the user-selected "Writing Power" level (5–30 dBm, default 10 dBm).
-6. **Write**: Call `writeData(Bank_EPC, 0, paddedHexCode)` to write the hex data to the EPC memory bank.
-7. **Verification**: Read back the EPC bank and perform a case-insensitive `startsWith` check against the original code. Treat as write error if verification fails.
-8. **Restore Power**: Reset UHF power to its original level.
-9. **History**: Record result in horizontal tag bar (last 20 entries). Green = success, Red = failure.
+2. **Normalization**: Trim whitespace, convert to uppercase, and reject empty or non-hex input. Valid characters are `0-9` and `A-F`.
+3. **EPC Size Detection**: Read the current tag's EPC bank to determine whether the writable EPC payload is 8 or 6 words (32 or 24 hex chars). Abort if tag unreadable.
+4. **Length Check**: Verify the normalized hex code length does not exceed the detected EPC bank size.
+5. **Zero-Padding**: Right-pad the normalized code with zeros (`0`) to fill the entire detected EPC bank size.
+6. **Power Setup**: Temporarily set UHF power to the user-selected "Writing Power" level (5–30 dBm, default 10 dBm).
+7. **Write**: Call `writeData("00000000", Bank_EPC, 2, epcSize, paddedHexCode)` to write the hex data to EPC memory after the PC word.
+8. **Verification**: Read back the EPC bank and perform a case-insensitive `startsWith` check against the normalized original code. Treat as write error if verification fails.
+9. **Restore Power**: Reset UHF power to its original level.
+10. **History**: Record result in horizontal tag bar (last 20 entries). Green = success, Red = failure.
 
 **Trigger behavior**:
 - **Auto-scan**: Barcode scanner activates automatically when tab is active. A scanned barcode fills the input and immediately triggers steps 2–9.
 - **Manual Write**: User types a hex code and taps **Write RFID** to trigger steps 2–9.
 
 ### 3. Radar (Target Search)
-**Targeting**: User-defined EPC substring. Supports Paste.
+**Targeting**: User-defined hex EPC target. Supports Paste.
 
 **Algorithm**:
-1. **Input**: User enters a target EPC substring to search for.
-2. **Start Inventory**: Call `startInventoryTag()` and begin polling loop for maximum reliability.
-3. **Adaptive Power Scanning**: Use a 3-step sliding window to rapidly cycle power levels (e.g., `26, 22, 18`):
-   - When target is near: window slides down to lower powers (up to 5 dBm drop) to filter out background reflections.
-   - When target is lost: window slides back up to 30 dBm to re-acquire.
-4. **Tag Detection**: For each power level in the window, poll for tags and extract RSSI values. Handle both raw dBm (e.g. -65) and centi-dBm (e.g. -6523) formats automatically.
-5. **Target Matching**: Find the tag whose EPC contains the user-defined substring. Track its RSSI.
-6. **Smart Hardware Math**: Calculate "equivalent 30 dBm distance" by compensating +1.0 dBm for every 1 dBm drop in transmission power. This prevents visual graph jumps during power switches.
-7. **Trend Calculation**: Compute fast current signal and slow Exponential Moving Average (EMA). Determine trend direction (Green = Getting Closer, Red = Moving Away).
-8. **EMA Trend Graph**: Update full-screen visualizer with two lines and colored area between them.
-9. **Directional Audio**: Play steady audio tick with pitch based on trend. "OK" beep in Green zone, "Error" beep in Red zone for blind navigation.
-10. **Panic Recovery**: If tag disappears from current low-power window, pause graph decay and perform 540ms "rescue sweep" at `[30, 24, 19] dBm` to re-acquire target without destroying visual trend.
-11. **Stop**: On user request, stop inventory and cleanup.
+1. **Input**: User enters or pastes a target EPC hex value.
+2. **Normalization**: Trim whitespace, convert to uppercase, and reject empty or non-hex input using `EpcTargetNormalizer`.
+3. **Power Setup**: Set UHF power to the saved Radar power level (default 30 dBm) before starting locate mode.
+4. **Start Locate**: Call `startLocation(context, targetLabel, Bank_EPC, 32, callback)` and let the Chainway SDK perform target acquisition.
+5. **Location Callback**: Receive `IUHFLocationCallback.getLocationValue(value, found)` from the SDK and deliver updates to the UI thread.
+6. **Signal Mapping**: Convert the SDK location value (`0..100`) into a graph score in the `-90..-10 dBm` display range. When the tag is not found, decay the target score toward `-90 dBm`.
+7. **Trend Calculation**: Smooth the displayed score and compute a slow Exponential Moving Average (EMA). Green means the current score is at or above the EMA; red means it is below the EMA.
+8. **EMA Trend Graph**: Update the full-screen visualizer with the current score, slow EMA, and saved Radar power level.
+9. **Directional Audio**: Play a steady OK/error tick based on the current-vs-EMA trend for eyes-free navigation.
+10. **Stop**: On user request or fragment pause/destroy, call `stopLocation()` and restore the original reader power.
 
 ### 4. Activity Log
 - **Dedicated View**: Full-screen log. Newest entries at the top. Max 30 entries.
@@ -101,83 +105,98 @@ app/src/main/res/
 ## Hardware Logic
 
 - **Language**: Kotlin + Coroutines (`lifecycleScope`, `Dispatchers.IO`).
-- **Inventory Mode**: Radar uses `startInventoryTag()` in a polling loop for maximum reliability. All hardware init (`setPower`, `stopInventory`, `setFilter`, `setEPCMode`, `startInventoryTag`) runs on `Dispatchers.IO` to avoid blocking the UI thread.
+- **UHF Initialization**: Startup and reconnect use `UhfConnectionController`, which stops the vendor scanner UHF function, frees the previous reader if present, waits for hardware to settle, then retries direct SDK initialization.
+- **Locate Mode**: Radar uses Chainway SDK `startLocation()` / `stopLocation()` instead of manual inventory polling. All UHF hardware calls run on `Dispatchers.IO` to avoid blocking the UI thread.
 - **Power Management**: Independent power levels for Scan/Write and Radar modes.
-- **RSSI Extraction**: Handles raw dBm (e.g. -65) and centi-dBm (e.g. -6523) formats automatically.
+- **Signal Display**: Radar displays SDK location values as synthetic dBm-like scores for continuity with the existing EMA graph UI.
 
 ## Concurrency model
 
-The UHF hardware (`RFIDWithUHFUART`) communicates over a UART serial bus. All commands to it must be serialized — issuing concurrent calls from multiple threads corrupts the bus and silently breaks inventory. The following rules are enforced throughout the codebase:
+The UHF hardware (`RFIDWithUHFUART`) communicates over a UART serial bus. All commands to it must be serialized — issuing concurrent calls from multiple threads corrupts the bus and silently breaks UHF operations. The codebase enforces this with a single `Mutex` (`uhfMutex`) around reader initialization, settings changes, Write operations, Locate startup, Locate stop, and cleanup.
 
 ### Thread ownership of UART
 
 | Operation | Thread | Mechanism |
 |---|---|---|
-| `stopInventory`, `setPower`, `setFilter`, `setEPCMode`, `startInventoryTag` | IO | `lifecycleScope.launch(Dispatchers.IO)` |
-| `readTagFromBuffer` (polling loop) | IO | same coroutine as startup |
-| `setDynamicRadarPower` | IO | always via `launch(Dispatchers.IO)`, never called directly from Main |
-| `stopRadar` (stop flag + hardware stop) | Main sets flag; IO stop via `launch(Dispatchers.IO)` | `isInventoryRunning.set(false)` then `launch(IO) { stopInventory() }` |
+| UHF initialization/reconnect | IO | `lifecycleScope.launch(Dispatchers.IO)` + `uhfMutex.withLock` |
+| `setFrequencyMode`, `setPower`, `readData`, `writeData` | IO | serialized through `uhfMutex` |
+| `startLocation`, `stopLocation` | IO | serialized through `uhfMutex` |
+| `setDynamicRadarPower` | IO | sets idle power only when Locate is not running |
+| `stopRadar` | IO | `isLocationRunning.set(false)`, `stopLocation()`, restore original power |
 | UI updates, callbacks | Main | `withContext(Dispatchers.Main)` |
 
-### `isInventoryRunning` — `AtomicBoolean`
+### `isLocationRunning` — `AtomicBoolean`
 
-Written on the IO thread (`set(true)` after `startInventoryTag()` succeeds), read on the Main thread (inside `setDynamicRadarPower`), written again on Main at stop. Declared as `AtomicBoolean` to guarantee cross-thread visibility without synchronized blocks.
+Written after `startLocation()` succeeds and cleared during `stopRadar()` / destroy cleanup. Read by `setDynamicRadarPower` so saved Radar power changes do not interrupt an active Locate session. Declared as `AtomicBoolean` to guarantee cross-thread visibility without synchronized blocks.
 
-### `currentScanPower` — `AtomicInteger`
+### UHF initialization sequence
 
-The current active power level is written by `cycleTicker` on the **Main thread** (Handler) and read by the IO polling loop as a snapshot at the moment a tag is detected. Using `AtomicInteger` ensures the IO thread always sees the latest value without locking.
+Startup and reconnect use the same cleanup/retry controller:
 
-Power snapshot pattern in the polling loop:
-```kotlin
-val powerSnapshot = currentScanPower.get()   // read on IO thread
-val info = reader.readTagFromBuffer()
-// ...
-onValueReceived(rssiRaw, displayRssi, epc, powerSnapshot)  // delivered to Main with correct power
+```
+[IO thread]
+completeUhfInitialization(reason)
+  uhfMutex.withLock {
+    ScannerUtility.isUhfWorking(context)
+    ScannerUtility.stopScan(context, FUNCTION_UHF)
+    previousReader.free()
+    delay(cleanupSettleDelayMs)
+    repeat retryDelaysMs.size attempts:
+      reader = RFIDWithUHFUART.getInstance()
+      reader.setPowerOnBySystem(context)
+      reader.init(context)
+      if connectStatus == CONNECTED:
+        mReader = reader.reader
+        applySavedSettings()
+        viewModel.setConnectionStatus(true)
+        syncSettingsToFragment()
+        return
+      reader.free()
+      delay(nextRetryDelayMs)
+  }
 ```
 
-This eliminates the race where `cycleTicker` changes power between detection and callback delivery, which would cause tags to be recorded with the wrong power key in `rssiMap`.
+Each attempt logs init result, connect status, power state, error code, scanner cleanup status, retry delay, and init path.
+
+When changing initialization code, keep the sequence centralized in `UhfConnectionController`. Do not call `RFIDWithUHFUART.init()` directly from fragments or UI handlers. A valid reconnect must first stop the vendor scanner UHF function, release the previous reader instance, wait for the cleanup settle delay, and only then retry direct SDK initialization under `uhfMutex`.
+
+Treat initialization as exclusive ownership of the UART bus. While init or reconnect is running, no Radar locate, write, power, or frequency operation may run outside the same mutex. If startup behavior changes, update `UhfConnectionControllerTest` with the expected cleanup, retry, and failure-ordering behavior instead of relying on device-only manual verification.
 
 ### Radar startup sequence
 
-The cycle ticker must not start until `startInventoryTag()` has actually succeeded on the IO thread. Starting it earlier causes `setDynamicRadarPower` calls to race against hardware initialization. The correct sequence:
+Radar graph/audio tickers start only after SDK Locate mode reports successful startup:
 
 ```
 [Main thread]                         [IO thread]
 startRadar() called
-  setDynamicRadarPower(30)            →  launch(IO): setPower(30)
-  handler.post(graphTicker)
-  handler.post(soundTicker)
-  handler.post(cleanupRunnable)
-  launch(IO): startRadar(...)         →  setPower(30)
-                                         stopInventory()
-                                         Thread.sleep(100)
-                                         setFilter(...)
-                                         setEPCMode()
-                                         startInventoryTag() ← succeeds
-                                         isInventoryRunning.set(true)
-                                      ↓  withContext(Main):
-  onInventoryReady() called  ←           appendLog(...)
-  handler.postDelayed(cycleTicker, 180ms) ← cycle ticker starts HERE
-                                         while (isInventoryRunning.get()) {
-                                           powerSnapshot = currentScanPower.get()
-                                           readTagFromBuffer()
-                                           ...
+  normalize target
+  disable target/paste UI
+  clear graph
+  launch(IO): startRadar(...)         →  uhfMutex.withLock {
+                                           originalRadarPower = reader.power
+                                           reader.setPower(savedRadarPower)
+                                           startLocation(...)
+                                           isLocationRunning.set(true)
                                          }
+                                      ↓  withContext(Main):
+  onStartResult(true)       ←           appendLog(...)
+  handler.post(soundTicker)
+  handler.post(graphTicker)
+  SDK callback              ←           getLocationValue(value, found)
+  update target score
 ```
 
-`cycleTicker` is posted only from `onInventoryReady()`, which is called on the Main thread after the IO coroutine confirms inventory is running. This guarantees the first `setDynamicRadarPower` from the ticker finds `isInventoryRunning == true` and correctly restarts inventory at the new power level.
+`setDynamicRadarPower` never restarts inventory or Locate. It only updates idle reader power when Locate mode is not active.
 
-### `cycleTicker` phase structure
-
-Each tick sets the power for the **current** phase index, then increments `cycleIndex`. This ensures every phase gets a full `phaseDurationMs` (180 ms) window, including phase 0:
+### Radar graph and sound tickers
 
 ```
-tick 0: set power = allPowers[windowIndex + 0], cycleIndex → 1, wait 180ms
-tick 1: set power = allPowers[windowIndex + 1], cycleIndex → 2, wait 180ms
-tick 2: set power = allPowers[windowIndex + 2], cycleIndex → 3, wait 180ms
-tick 3: cycleIndex >= 3 → evaluate cycle, reset cycleIndex = 0
-        set power = allPowers[windowIndex + 0], cycleIndex → 1, wait 180ms
-        ...
-```
+graphTicker every 50ms:
+  emaSlowScore = 0.02 * accumulatedScore + 0.98 * emaSlowScore
+  radarGraph.addValue(accumulatedScore, savedRadarPower, savedRadarPower)
+  accumulatedScore += (targetAccumulatedScore - accumulatedScore) * 0.6
 
-Previously `cycleIndex++` was at the top of the runnable, which skipped phase 0 on the first tick and produced a malformed initial evaluation cycle.
+soundTicker every 300ms while signal is visible:
+  accumulatedScore >= emaSlowScore -> OK beep
+  accumulatedScore < emaSlowScore -> error beep
+```
