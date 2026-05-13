@@ -168,7 +168,18 @@ class MainActivity : AppCompatActivity() {
 
     fun openBarcode() {
         if (barcodeDecoder?.open(this) == true) {
-            BarcodeUtility.getInstance().enablePlayFailureSound(this, true)
+            val barcodeUtility = BarcodeUtility.getInstance()
+            BarcodeSoundPolicy.apply(
+                object : BarcodeSoundSettings {
+                    override fun setSuccessSound(enabled: Boolean) {
+                        barcodeUtility.enablePlaySuccessSound(this@MainActivity, enabled)
+                    }
+
+                    override fun setFailureSound(enabled: Boolean) {
+                        barcodeUtility.enablePlayFailureSound(this@MainActivity, enabled)
+                    }
+                }
+            )
             appendLog("Barcode scanner enabled")
         }
     }
@@ -225,6 +236,7 @@ class MainActivity : AppCompatActivity() {
                 "UHF $reason attempt ${attemptLog.attempt}: " +
                 "isUhfWorking=${attemptLog.isUhfWorking}, " +
                 "scannerEnable=${attemptLog.scannerEnableResult}, " +
+                "barcodeEnable=${attemptLog.scannerBarcodeEnableResult}, " +
                 "scannerStop=${attemptLog.scannerStopResult}, " +
                 "scannerDisable=${attemptLog.scannerDisableResult}, " +
                 "oldFree=${attemptLog.previousReaderFreeResult ?: "not-needed"}, " +

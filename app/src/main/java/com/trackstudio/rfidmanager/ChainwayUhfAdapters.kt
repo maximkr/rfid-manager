@@ -66,6 +66,13 @@ class ChainwayScannerCleaner(
         return "ok"
     }
 
+    override fun enableBarcode(): String {
+        scannerUtility.enableFunction(context, IScanner.FUNCTION_1D)
+        scannerUtility.enableFunction(context, IScanner.FUNCTION_2D_H)
+        scannerUtility.enableFunction(context, IScanner.FUNCTION_2D)
+        return "ok:1d+2dh+2d"
+    }
+
     override fun stopUhf() {
         scannerUtility.stopScan(context, IScanner.FUNCTION_UHF)
     }

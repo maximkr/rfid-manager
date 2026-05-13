@@ -20,6 +20,7 @@ interface UhfReaderFactory {
 interface UhfScannerCleaner {
     fun isUhfWorking(): Boolean
     fun enableUhf(): String
+    fun enableBarcode(): String
     fun stopUhf()
     fun disableUhf(): String
 }
@@ -40,6 +41,7 @@ data class UhfInitAttemptLog(
     val nextRetryDelayMs: Long,
     val cleanupExceptions: List<String> = emptyList(),
     val scannerEnableResult: String = "not-run",
+    val scannerBarcodeEnableResult: String = "not-run",
     val scannerStopResult: String = "not-run",
     val scannerDisableResult: String = "not-run",
     val previousReaderFreeResult: String? = null,
@@ -87,6 +89,7 @@ class UhfConnectionController(
                 nextRetryDelayMs = nextDelay,
                 cleanupExceptions = cleanup.exceptions.toList(),
                 scannerEnableResult = cleanup.scannerEnableResult,
+                scannerBarcodeEnableResult = cleanup.scannerBarcodeEnableResult,
                 scannerStopResult = cleanup.scannerStopResult,
                 scannerDisableResult = cleanup.scannerDisableResult,
                 previousReaderFreeResult = cleanup.previousReaderFreeResult,
@@ -123,6 +126,13 @@ class UhfConnectionController(
                 "exception"
             }
         )
+        val scannerBarcodeEnableResult = runCatching { scannerCleaner.enableBarcode() }.fold(
+            onSuccess = { it },
+            onFailure = {
+                exceptions.add("scanner.enableBarcode:${it.message ?: it::class.java.simpleName}")
+                "exception"
+            }
+        )
         val scannerStopResult = runCatching { scannerCleaner.stopUhf() }.fold(
             onSuccess = { "ok" },
             onFailure = {
@@ -147,13 +157,14 @@ class UhfConnectionController(
                 }
             )
         }
-        return CleanupState(isUhfWorking, exceptions, scannerEnableResult, scannerStopResult, scannerDisableResult, previousReaderFreeResult)
+        return CleanupState(isUhfWorking, exceptions, scannerEnableResult, scannerBarcodeEnableResult, scannerStopResult, scannerDisableResult, previousReaderFreeResult)
     }
 
     private data class CleanupState(
         val isUhfWorking: Boolean?,
         val exceptions: MutableList<String>,
         val scannerEnableResult: String,
+        val scannerBarcodeEnableResult: String,
         val scannerStopResult: String,
         val scannerDisableResult: String,
         val previousReaderFreeResult: String?

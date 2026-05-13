@@ -25,7 +25,7 @@ class UhfConnectionControllerTest {
         assertTrue(result.connected)
         assertSame(reader, result.reader)
         assertEquals(
-            listOf("scanner.isUhfWorking", "scanner.enableUhf", "scanner.stopUhf", "scanner.disableUhf", "delay:300", "factory.create", "reader.init"),
+            listOf("scanner.isUhfWorking", "scanner.enableUhf", "scanner.enableBarcode", "scanner.stopUhf", "scanner.disableUhf", "delay:300", "factory.create", "reader.init"),
             events
         )
     }
@@ -46,7 +46,7 @@ class UhfConnectionControllerTest {
         assertTrue(result.connected)
         assertSame(newReader, result.reader)
         assertEquals(
-            listOf("scanner.isUhfWorking", "scanner.enableUhf", "scanner.stopUhf", "scanner.disableUhf", "old.free", "delay:300", "factory.create", "new.init"),
+            listOf("scanner.isUhfWorking", "scanner.enableUhf", "scanner.enableBarcode", "scanner.stopUhf", "scanner.disableUhf", "old.free", "delay:300", "factory.create", "new.init"),
             events
         )
     }
@@ -131,8 +131,27 @@ class UhfConnectionControllerTest {
 
         assertTrue(result.connected)
         assertEquals("ok", logs.single().scannerEnableResult)
+        assertEquals("ok", logs.single().scannerBarcodeEnableResult)
         assertEquals("skipped", logs.single().scannerDisableResult)
         assertEquals("fake-init:reader", logs.single().initPath)
+    }
+
+    @Test
+    fun barcodeFunctionIsEnabledBeforeReaderInit() = runBlocking {
+        val events = mutableListOf<String>()
+        val reader = FakeReader(events, initResults = mutableListOf(true))
+        val logs = mutableListOf<UhfInitAttemptLog>()
+        val controller = controller(
+            scanner = FakeScannerCleaner(events, barcodeEnableResult = "ok:1d+2dh+2d"),
+            readers = listOf(reader),
+            logHandler = { logs.add(it) }
+        )
+
+        val result = controller.initialize()
+
+        assertTrue(result.connected)
+        assertEquals("ok:1d+2dh+2d", logs.single().scannerBarcodeEnableResult)
+        assertTrue(events.indexOf("scanner.enableBarcode") < events.indexOf("factory.create"))
     }
 
     @Test
@@ -176,7 +195,7 @@ class UhfConnectionControllerTest {
 
         assertTrue(result.connected)
         assertEquals(
-            listOf("scanner.isUhfWorking", "scanner.enableUhf", "scanner.stopUhf", "scanner.disableUhf", "delay:123", "factory.create", "reader.init"),
+            listOf("scanner.isUhfWorking", "scanner.enableUhf", "scanner.enableBarcode", "scanner.stopUhf", "scanner.disableUhf", "delay:123", "factory.create", "reader.init"),
             events
         )
     }
@@ -188,7 +207,7 @@ class UhfConnectionControllerTest {
         val newReader = FakeReader(events, name = "new", initResults = mutableListOf(true))
         val logs = mutableListOf<UhfInitAttemptLog>()
         val controller = controller(
-            scanner = FakeScannerCleaner(events, isWorkingException = IllegalStateException("state boom"), enableException = IllegalStateException("enable boom"), stopException = IllegalStateException("stop boom"), disableException = IllegalStateException("disable boom")),
+            scanner = FakeScannerCleaner(events, isWorkingException = IllegalStateException("state boom"), enableException = IllegalStateException("enable boom"), barcodeEnableException = IllegalStateException("barcode boom"), stopException = IllegalStateException("stop boom"), disableException = IllegalStateException("disable boom")),
             readers = listOf(newReader),
             logHandler = { logs.add(it) }
         )
@@ -198,7 +217,7 @@ class UhfConnectionControllerTest {
         assertTrue(result.connected)
         assertSame(newReader, result.reader)
         assertEquals(1, logs.size)
-        assertEquals(listOf("scanner.isUhfWorking:state boom", "scanner.enableUhf:enable boom", "scanner.stopUhf:stop boom", "scanner.disableUhf:disable boom", "old.free:free boom"), logs[0].cleanupExceptions)
+        assertEquals(listOf("scanner.isUhfWorking:state boom", "scanner.enableUhf:enable boom", "scanner.enableBarcode:barcode boom", "scanner.stopUhf:stop boom", "scanner.disableUhf:disable boom", "old.free:free boom"), logs[0].cleanupExceptions)
     }
 
     private fun controller(
@@ -231,6 +250,8 @@ class UhfConnectionControllerTest {
         private val isWorkingException: RuntimeException? = null,
         private val enableException: RuntimeException? = null,
         private val enableResult: String = "ok",
+        private val barcodeEnableException: RuntimeException? = null,
+        private val barcodeEnableResult: String = "ok",
         private val stopException: RuntimeException? = null,
         private val disableException: RuntimeException? = null,
         private val disableResult: String = "ok"
@@ -245,6 +266,12 @@ class UhfConnectionControllerTest {
             events.add("scanner.enableUhf")
             enableException?.let { throw it }
             return enableResult
+        }
+
+        override fun enableBarcode(): String {
+            events.add("scanner.enableBarcode")
+            barcodeEnableException?.let { throw it }
+            return barcodeEnableResult
         }
 
         override fun stopUhf() {
