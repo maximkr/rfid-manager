@@ -19,7 +19,7 @@ class RadarGraphView @JvmOverloads constructor(
     private val alphaSlow = 0.02f // ~50 points smoothing
     
     private val fastLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00E676") // Bright green
+        color = ContextCompat.getColor(context, R.color.md_theme_primary)
         strokeWidth = 5f
         style = Paint.Style.STROKE
         strokeJoin = Paint.Join.ROUND
@@ -27,7 +27,7 @@ class RadarGraphView @JvmOverloads constructor(
     }
     
     private val slowLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#2979FF") // Bright Blue
+        color = ContextCompat.getColor(context, R.color.md_theme_secondary)
         strokeWidth = 3f
         style = Paint.Style.STROKE
         strokeJoin = Paint.Join.ROUND
@@ -35,7 +35,7 @@ class RadarGraphView @JvmOverloads constructor(
     }
     
     private val positiveDiffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00E676") // Bright green
+        color = ContextCompat.getColor(context, R.color.md_theme_primary)
         alpha = 80
         style = Paint.Style.FILL
     }
@@ -46,15 +46,31 @@ class RadarGraphView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    private val powerBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, R.color.md_theme_error)
+    private val powerTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.md_theme_surfaceVariant)
         style = Paint.Style.FILL
-        alpha = 150
+    }
+
+    private val powerFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.md_theme_primaryContainer)
+        style = Paint.Style.FILL
+    }
+
+    private val powerMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.md_theme_primary)
+        style = Paint.Style.FILL
     }
 
     private val powerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, R.color.md_theme_onSurface)
-        textSize = 22f
+        textSize = 20f
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
+    }
+
+    private val powerCaptionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.md_theme_onSurfaceVariant)
+        textSize = 16f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT_BOLD
     }
@@ -72,10 +88,10 @@ class RadarGraphView @JvmOverloads constructor(
         alpha = 150
     }
 
-    private var maxWindowPower = 30
-    private var minWindowPower = 30
+    private val powerCaption = context.getString(R.string.radar_power_max_label)
+    private var displayPower = 30
 
-    fun addValue(value: Float, maxPower: Int, minPower: Int) {
+    fun addValue(value: Float, maxPower: Int) {
         // Ensure value is within -90 to -10 range (dBm)
         val clampedValue = value.coerceIn(-90f, -10f)
         
@@ -88,8 +104,7 @@ class RadarGraphView @JvmOverloads constructor(
         dataPoints.add(clampedValue)
         emaSlowPoints.add(emaSlow)
         
-        maxWindowPower = maxPower.coerceIn(0, 30)
-        minWindowPower = minPower.coerceIn(0, 30)
+        displayPower = maxPower.coerceIn(0, 30)
         
         if (dataPoints.size > maxPoints) {
             dataPoints.removeAt(0)
@@ -102,17 +117,17 @@ class RadarGraphView @JvmOverloads constructor(
         dataPoints.clear()
         emaSlowPoints.clear()
         emaSlow = -90f
+        displayPower = 30
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
-        // Reserve space for labels on the left and power bar on the right
+        // Reserve space for labels on the left and stable max-power indicator on the right
         val labelWidth = 70f
-        val powerBarWidth = 30f
-        val rightMargin = 40f
-        val contentW = (width - paddingLeft - paddingRight - labelWidth - powerBarWidth - rightMargin).toFloat()
+        val powerIndicatorWidth = 72f
+        val contentW = (width - paddingLeft - paddingRight - labelWidth - powerIndicatorWidth).toFloat()
         val contentH = (height - paddingTop - paddingBottom).toFloat()
         val startX = paddingLeft.toFloat() + labelWidth
         val startY = paddingTop.toFloat()
@@ -182,16 +197,24 @@ class RadarGraphView @JvmOverloads constructor(
         canvas.drawPath(fastPath, fastLinePaint)
 
 
-        // Draw Power Bar Range
-        val barX = startX + contentW + rightMargin
-        val barTop = startY + contentH - (maxWindowPower / 30f * contentH)
-        val barBottom = startY + contentH - (minWindowPower / 30f * contentH)
+        drawPowerIndicator(canvas, startX + contentW + 20f, startY, contentH)
+    }
 
-        canvas.drawRect(barX, barTop, barX + powerBarWidth, barBottom, powerBarPaint)
-        
-        // Draw label in the middle of the bar if it fits, or above/below
-        val textY = if (barTop - 10f < startY + 20f) startY + 20f else barTop - 10f
-        canvas.drawText("$maxWindowPower-$minWindowPower", barX + powerBarWidth / 2f, textY, powerTextPaint)
+    private fun drawPowerIndicator(canvas: Canvas, x: Float, y: Float, h: Float) {
+        val trackWidth = 44f
+        val markerHeight = 6f
+        val trackRect = RectF(x, y, x + trackWidth, y + h)
+        val fillTop = y + h - (displayPower / 30f * h)
+        val fillRect = RectF(x, fillTop, x + trackWidth, y + h)
+        val markerRect = RectF(x, fillTop - markerHeight / 2f, x + trackWidth, fillTop + markerHeight / 2f)
+        val textX = x + trackWidth / 2f
+        val textY = fillTop.coerceIn(y + 34f, y + h - 16f)
+
+        canvas.drawRoundRect(trackRect, 14f, 14f, powerTrackPaint)
+        canvas.drawRoundRect(fillRect, 14f, 14f, powerFillPaint)
+        canvas.drawRoundRect(markerRect, 3f, 3f, powerMarkerPaint)
+        canvas.drawText(powerCaption, textX, textY - 12f, powerCaptionPaint)
+        canvas.drawText(context.getString(R.string.unit_dbm, displayPower), textX, textY + 14f, powerTextPaint)
     }
 
     private fun drawGrid(canvas: Canvas, x: Float, y: Float, w: Float, h: Float) {

@@ -20,6 +20,7 @@
     <string name="radar_target_epc">Target EPC</string>
     <string name="radar_start">Start Radar</string>
     <string name="radar_stop">Stop Radar</string>
+    <string name="radar_power_max_label">MAX</string>
     <string name="radar_paste_description">Paste from clipboard</string>
     <string-array name="frequency_modes">
         <item>China 920–925 MHz</item>
