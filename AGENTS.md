@@ -86,14 +86,15 @@ app/src/main/res/
 **Algorithm**:
 1. **Input**: User enters or pastes a target EPC hex value.
 2. **Normalization**: Trim whitespace, convert to uppercase, and reject empty or non-hex input using `EpcTargetNormalizer`.
-3. **Power Setup**: Set UHF power to the saved Radar power level (default 30 dBm) before starting locate mode.
+3. **Power Setup**: Start Locate at the saved Radar power level, then hand active power control to the dynamic Radar power window.
 4. **Start Locate**: Call `startLocation(context, targetLabel, Bank_EPC, 32, callback)` and let the Chainway SDK perform target acquisition.
 5. **Location Callback**: Receive `IUHFLocationCallback.getLocationValue(value, found)` from the SDK and deliver updates to the UI thread.
 6. **Signal Mapping**: Convert the SDK location value (`0..100`) into a graph score in the `-90..-10 dBm` display range. When the tag is not found, decay the target score toward `-90 dBm`.
 7. **Trend Calculation**: Smooth the displayed score and compute a slow Exponential Moving Average (EMA). Green means the current score is at or above the EMA; red means it is below the EMA.
-8. **EMA Trend Graph**: Update the full-screen visualizer with the current score, slow EMA, and saved Radar power level.
-9. **Directional Audio**: Play a steady OK/error tick based on the current-vs-EMA trend for eyes-free navigation.
-10. **Stop**: On user request or fragment pause/destroy, call `stopLocation()` and restore the original reader power.
+8. **Dynamic Power Window**: Cycle the active Locate power through a 3-level window once per second. Every 3 seconds, keep the window when the target is visible at high/mid power and hidden at low power; move lower when it is visible at all three levels; enter upward recovery when it is missing at high or mid power.
+9. **EMA Trend Graph**: Update the full-screen visualizer with the current score, slow EMA, and stable max power of the current Radar window. Do not visualize internal one-second phase jumps.
+10. **Directional Audio**: Play a steady OK/error tick based on the current-vs-EMA trend for eyes-free navigation.
+11. **Stop**: On user request or fragment pause/destroy, call `stopLocation()` and restore the original reader power.
 
 ### 4. Activity Log
 - **Dedicated View**: Full-screen log. Newest entries at the top. Max 30 entries.
@@ -107,7 +108,7 @@ app/src/main/res/
 - **Language**: Kotlin + Coroutines (`lifecycleScope`, `Dispatchers.IO`).
 - **UHF Initialization**: Startup and reconnect use `UhfConnectionController`, which stops the vendor scanner UHF function, frees the previous reader if present, waits for hardware to settle, then retries direct SDK initialization.
 - **Locate Mode**: Radar uses Chainway SDK `startLocation()` / `stopLocation()` instead of manual inventory polling. All UHF hardware calls run on `Dispatchers.IO` to avoid blocking the UI thread.
-- **Power Management**: Independent power levels for Scan/Write and Radar modes.
+- **Power Management**: Independent power levels for Scan/Write and Radar modes. Radar dynamically probes adjacent power levels while Locate is active.
 - **Signal Display**: Radar displays SDK location values as synthetic dBm-like scores for continuity with the existing EMA graph UI.
 
 ## Concurrency model
@@ -122,6 +123,7 @@ The UHF hardware (`RFIDWithUHFUART`) communicates over a UART serial bus. All co
 | `setFrequencyMode`, `setPower`, `readData`, `writeData` | IO | serialized through `uhfMutex` |
 | `startLocation`, `stopLocation` | IO | serialized through `uhfMutex` |
 | `setDynamicRadarPower` | IO | sets idle power only when Locate is not running |
+| `setActiveRadarPower` | IO | updates current Radar Locate power during dynamic probing |
 | `stopRadar` | IO | `isLocationRunning.set(false)`, `stopLocation()`, restore original power |
 | UI updates, callbacks | Main | `withContext(Dispatchers.Main)` |
 
@@ -186,15 +188,43 @@ startRadar() called
   update target score
 ```
 
-`setDynamicRadarPower` never restarts inventory or Locate. It only updates idle reader power when Locate mode is not active.
+`setDynamicRadarPower` never restarts inventory or Locate. It only updates idle reader power when Locate mode is not active. `setActiveRadarPower` is the dedicated active-Locate path used by Radar's 3-second dynamic window.
+
+### Dynamic Radar power window
+
+Radar power probing is controlled by `RadarPowerWindowController`. The ordered power ladder is:
+
+```
+[30, 24, 19, 15, 12, 10, 8, 7, 6, 5]
+```
+
+The active window always contains three adjacent levels. Radar applies one level per second, but the UI displays only the maximum power of the current window so the visual indicator does not jump between internal probe phases. Radar evaluates the 3-second result:
+
+| Result over high/mid/low window | Next action |
+|---|---|
+| high=yes, mid=yes, low=no | keep the current window |
+| high=yes, mid=yes, low=yes | move one window lower |
+| high=no or mid=no | enter upward recovery |
+
+The target condition is intentionally based on SDK Locate `found` callbacks, not synthetic graph dBm. This keeps power adaptation tied to whether the tag is actually acquired at each probe level.
+
+When Radar enters upward recovery, it probes stronger power levels one by one until the SDK reports `found=true`. The recovered power becomes the center of the next 3-level window when possible. Example: if recovery finds the tag at `12 dBm`, the new window becomes `[15, 12, 10]`; if it finds the tag at `30 dBm`, the window clamps to `[30, 24, 19]`.
 
 ### Radar graph and sound tickers
 
 ```
 graphTicker every 50ms:
   emaSlowScore = 0.02 * accumulatedScore + 0.98 * emaSlowScore
-  radarGraph.addValue(accumulatedScore, savedRadarPower, savedRadarPower)
+  radarGraph.addValue(accumulatedScore, powerController.displayPower())
   accumulatedScore += (targetAccumulatedScore - accumulatedScore) * 0.6
+
+powerTicker every 1000ms:
+  if powerController.isRecovering():
+    activeRadarPower = powerController.advancePhase()
+  else after 3 phases:
+    decision = powerController.evaluateWindow()
+    activeRadarPower = powerController.currentPower()
+  setActiveRadarPower(activeRadarPower)
 
 soundTicker every 300ms while signal is visible:
   accumulatedScore >= emaSlowScore -> OK beep

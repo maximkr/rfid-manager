@@ -32,10 +32,11 @@ This mode replaces expensive dedicated RFID printers when implementing RFID in s
 
 An innovative tool for pinpointing a specific tag among hundreds of others, utilizing adaptive scanning algorithms and technical trend analysis.
 
-*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it continuously cycles the hardware transmitter power across a sliding window of 3 consecutive levels drawn from a fixed ladder `[30, 24, 19, 15, 12, 10, 8, 7, 6, 5]` dBm (e.g., `30, 24, 19` at maximum range or `10, 8, 7` up close).
-    *   If the target tag is far away, the radar operates at maximum power (up to 30 dBm).
-    *   As you physically approach the tag, the "window" smoothly slides down all the way to 5 dBm. This allows you to surgically pinpoint the object at close range, completely filtering out distant reflections and neighboring tags.
-*   **Smart Distance Graph**: A large, full-screen graph visualizes the precise signal strength, mathematically normalized to an "ideal 30 dBm equivalent" distance (`dBm`).
+*   **Dynamic Sliding Power Window**: The radar doesn't rely on a fixed transmission power. Instead, it cycles the hardware transmitter power across a sliding window of 3 consecutive levels drawn from a fixed ladder `[30, 24, 19, 15, 12, 10, 8, 7, 6, 5]` dBm (e.g., `30, 24, 19` at maximum range or `10, 8, 7` up close).
+    *   The target condition is stable when the tag is visible at the high and middle levels, but hidden at the low level.
+    *   If the tag is visible at all three levels, the window slides down toward lower power for closer pinpointing.
+    *   If the tag disappears at the high or middle level, the radar enters upward recovery, probes stronger powers until the tag is found again, then centers the next window around the recovered power when possible.
+*   **Smart Distance Graph**: A large, full-screen graph visualizes the SDK Locate signal as a dBm-like trend. The power indicator shows the stable maximum power of the current window, not the internal one-second probe jumps.
 *   **EMA Trend Analysis**: The graph plots two lines: the fast current signal (Gray line) and a slow, smoothed trend line (Blue EMA line). The area between them is dynamically color-coded:
     *   🟩 **Green area**: You are moving in the right direction (the current signal is rising faster than the slow trend).
     *   🟥 **Red area**: You walked past the tag or are moving away (the current signal drops below the trend).
