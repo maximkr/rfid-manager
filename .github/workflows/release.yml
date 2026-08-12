@@ -35,42 +35,99 @@ jobs:
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
-      # Собирается debug-сборка: она подписана отладочным ключом и потому
-      # устанавливается на устройство сразу. Чтобы выпускать release-сборку,
-      # нужен keystore — см. комментарий в конце файла.
-      - name: Build APK
+      # Ключ приезжает из секрета в base64 и кладётся во временный каталог
+      # раннера, который удаляется вместе с машиной. Если секрет не задан,
+      # сборка не падает — выпускается debug APK, как раньше.
+      - name: Подготовить подпись
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Ключ получен, собираем подписанный release APK"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Секрет KEYSTORE_BASE64 не задан — будет собран debug APK"
+          fi
+
+      - name: Собрать подписанный release APK
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Собрать debug APK (ключ не задан)
+        if: steps.signing.outputs.signed != 'true'
         run: ./gradlew --no-daemon assembleDebug
+
+      # Печатает отпечаток сертификата, которым подписан APK. Это публичная
+      # информация — она есть в любом опубликованном APK. Сверьте SHA-256
+      # с тем, что показывает RuStore, чтобы убедиться: ключ тот самый и
+      # обновление встанет поверх магазинной версии.
+      - name: Проверить подпись
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -Vr | head -1)
+          "$APKSIGNER" verify --verbose --print-certs \
+            app/build/outputs/apk/release/app-release.apk
+
+      - name: Удалить ключ
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
 
       - name: Подготовить артефакт
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk \
-             "dist/rfid-manager-${GITHUB_REF_NAME}-debug.apk"
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+            cp app/build/outputs/apk/release/app-release.apk \
+               "dist/rfid-manager-${GITHUB_REF_NAME}.apk"
+            echo "APK_SUFFIX=" >> "$GITHUB_ENV"
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk \
+               "dist/rfid-manager-${GITHUB_REF_NAME}-debug.apk"
+            echo "APK_SUFFIX=-debug" >> "$GITHUB_ENV"
+          fi
 
       - name: Подготовить описание релиза
         run: |
-          cat > release-notes.md <<'EOF'
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+            cat > release-notes.md <<'EOF'
           ## Установка
 
-          **Обычный способ — [RuStore](https://www.rustore.ru/catalog/app/com.trackstudio.rfidmanager).**
-          Оттуда приходит официальная подписанная сборка, она же обновляется штатно.
-
-          Приложенный ниже `rfid-manager-TAG_PLACEHOLDER-debug.apk` — сборка для
-          тестирования и сайдлоада: собрана из исходников этого тега и подписана
-          отладочным ключом.
+          Скачайте `rfid-manager-TAG_PLACEHOLDER.apk` ниже и установите на устройство:
 
           ```bash
-          adb install -r rfid-manager-TAG_PLACEHOLDER-debug.apk
+          adb install -r rfid-manager-TAG_PLACEHOLDER.apk
           ```
 
-          > ⚠️ Отладочный ключ не совпадает с ключом сборки из RuStore. Поставить
-          > этот APK поверх версии из магазина не получится — Android откажет
-          > из-за несовпадения подписи. Сначала удалите установленное приложение.
-          > Обратная замена тоже потребует удаления.
+          Либо скопируйте файл на терминал и откройте через файловый менеджер,
+          разрешив установку из неизвестных источников.
+
+          APK подписан тем же ключом, что и сборка в
+          [RuStore](https://www.rustore.ru/catalog/app/com.trackstudio.rfidmanager),
+          поэтому ставится поверх магазинной версии как обычное обновление.
 
           Требуется Android 13 (API 33) или новее. Разрабатывалось и проверялось
           на **Chainway C5**.
           EOF
+          else
+            cat > release-notes.md <<'EOF'
+          ## Установка
+
+          **Основной способ — [RuStore](https://www.rustore.ru/catalog/app/com.trackstudio.rfidmanager).**
+
+          Приложенный `rfid-manager-TAG_PLACEHOLDER-debug.apk` собран отладочным
+          ключом: поверх версии из магазина он не встанет, Android откажет
+          из-за несовпадения подписи.
+
+          Требуется Android 13 (API 33) или новее.
+          EOF
+          fi
           sed -i "s/TAG_PLACEHOLDER/${GITHUB_REF_NAME}/g" release-notes.md
 
       - name: Create GitHub Release
@@ -78,30 +135,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            "dist/rfid-manager-${GITHUB_REF_NAME}-debug.apk" \
+            "dist/rfid-manager-${GITHUB_REF_NAME}${APK_SUFFIX}.apk" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file release-notes.md \
             --generate-notes
-
-# ----------------------------------------------------------------------------
-# Как перейти на подписанную release-сборку
-#
-# 1. Создать keystore:
-#      keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 \
-#              -validity 10000 -alias release
-# 2. Добавить в Settings -> Secrets and variables -> Actions секреты:
-#      KEYSTORE_BASE64   — base64 файла release.jks
-#      KEYSTORE_PASSWORD
-#      KEY_ALIAS
-#      KEY_PASSWORD
-# 3. Прописать signingConfigs в app/build.gradle.kts, читая их из переменных
-#    окружения, и заменить выше assembleDebug на assembleRelease, а путь —
-#    на app/build/outputs/apk/release/app-release.apk
-#
-# Использовать здесь тот же keystore, которым подписана сборка в RuStore, —
-# тогда APK с GitHub будет ставиться поверх магазинной версии без удаления,
-# и предупреждение из описания релиза можно будет убрать.
-#
-# Keystore нужно хранить вне репозитория: потеряв его, вы не сможете выпускать
-# обновления, устанавливаемые поверх уже установленной версии.
-# ----------------------------------------------------------------------------

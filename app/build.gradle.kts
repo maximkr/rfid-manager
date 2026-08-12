@@ -3,6 +3,13 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.android)
 }
 
+// Подпись release-сборки берётся из переменных окружения, а не из файла
+// в репозитории. В CI они приезжают из GitHub Secrets, локально их можно
+// выставить в своей оболочке. Если KEYSTORE_PATH не задан, signingConfig
+// не создаётся и assembleRelease выдаёт неподписанный APK — так локальная
+// сборка и форки продолжают работать без доступа к ключу.
+val keystorePath: String? = System.getenv("KEYSTORE_PATH")
+
 android {
     namespace = "com.trackstudio.rfidmanager"
     compileSdk = 37
@@ -17,6 +24,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -24,6 +42,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // null, если ключ не передан — тогда APK останется неподписанным
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
