@@ -19,6 +19,13 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # Мажорные обновления не предлагаем. Первый же запуск открыл PR
+      # с AGP 8.13 -> 9.3 и Gradle 8.13 -> 9.7, и сборка на них падает.
+      # Мажоры AGP и Gradle идут в связке и требуют ручной проверки,
+      # автоматическим PR такое не решается.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
