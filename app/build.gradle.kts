@@ -30,11 +30,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
     buildFeatures {
         viewBinding = true
+    }
+}
+
+// Пришло на смену kotlinOptions { jvmTarget = "11" }: строковый jvmTarget
+// в старом DSL объявлен ошибкой начиная с Kotlin 2.2. compilerOptions
+// поддерживается с Kotlin 2.0, так что работает и на текущей 2.1.0.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
