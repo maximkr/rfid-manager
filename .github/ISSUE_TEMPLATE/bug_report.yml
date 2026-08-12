@@ -1,0 +1,83 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Precise reproduction steps make fixes much faster.
+
+        **Found a security issue?** Do not describe it here — use the [private form](https://github.com/maximkr/rfid-manager/security/advisories/new), see [SECURITY.md](https://github.com/maximkr/rfid-manager/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happens
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the ... screen
+        2. Set write power to ... dBm
+        3. Pull the trigger
+        4. ...
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Handheld model and Android version.
+      placeholder: "Chainway C5, Android 13"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: From the release page, or `versionName` if you built it yourself.
+      placeholder: "1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Scan & Write (tag programming)
+        - Radar (tag search)
+        - Barcode scanner
+        - Activity log
+        - Settings
+        - Reader connection / startup
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: tags
+    attributes:
+      label: Tags used
+      description: Tag type and EPC size, if relevant.
+      placeholder: "EPC Gen2, 6-word EPC"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output from the in-app Activity Log, or `adb logcat`.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, workarounds, anything that helps.

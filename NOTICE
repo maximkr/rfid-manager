@@ -1,0 +1,39 @@
+RFID Manager
+Copyright 2025 Maxim Kr and contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full licence text.
+
+--------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------
+
+app/libs/DeviceAPI_ver20230301_release.aar
+
+    Chainway DeviceAPI SDK (UHF RFID and barcode scanner)
+    Copyright Shenzhen Chainway Information Technology Co., Ltd.
+
+    This is a proprietary binary distributed by the device vendor for use
+    with Chainway handheld terminals. It is NOT covered by the Apache
+    License 2.0 that applies to the rest of this repository, and no
+    licence is granted to it by this project.
+
+    The file is committed to this repository because the vendor does not
+    publish it to any Maven repository, and the application cannot be
+    built without it. It is redistributed here on the understanding that
+    Chainway supplies it to users of its hardware for exactly this
+    purpose.
+
+    If you intend to use this application commercially, or to redistribute
+    it, obtain the SDK and its licence terms directly from Chainway:
+    https://www.chainway.net/
+
+    If you are a rights holder and consider this redistribution improper,
+    please open an issue or contact the maintainer and it will be removed.
+
+--------------------------------------------------------------------------
+
+Other dependencies are resolved from Maven Central and Google's Maven
+repository at build time and are not redistributed in this repository.
+Their licences are those declared by their respective projects; see
+gradle/libs.versions.toml and app/build.gradle.kts for the full list.

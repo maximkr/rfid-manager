@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/maximkr/rfid-manager/security/advisories/new
+    about: Private channel. Please do not describe security issues in public issues.
+  - name: Chainway device SDK
+    url: https://www.chainway.net/
+    about: Problems inside the vendor DeviceAPI SDK need to go to Chainway, not here.

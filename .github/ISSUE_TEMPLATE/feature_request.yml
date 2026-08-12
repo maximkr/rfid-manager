@@ -1,0 +1,39 @@
+name: Feature request
+description: An idea for a new capability or an improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: Describe the situation that is awkward today — what you are trying to do and why it does not work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: How it could work
+      description: Your proposal. If it involves the UI, describe it or attach a sketch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: Workarounds, other apps, manual steps.
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Which handheld you use, if the request is hardware-specific.
+      placeholder: "Chainway C5"
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to implement this myself

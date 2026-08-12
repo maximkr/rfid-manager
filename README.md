@@ -59,7 +59,7 @@ An innovative tool for pinpointing a specific tag among hundreds of others, util
 ## Technical Details
 *   **Language**: Kotlin 2.1.0 + Coroutines (for asynchronous, non-blocking hardware communication).
 *   **Architecture**: Single Activity + Jetpack Navigation Component + Shared ViewModel.
-*   **SDK**: Chainway DeviceAPI (UHF + Barcode).
+*   **SDK**: Chainway DeviceAPI (UHF + Barcode). Proprietary vendor binary bundled in `app/libs/` — not covered by this project's Apache-2.0 licence, see [NOTICE](NOTICE).
 *   **UI**: Modern Material 3 interface featuring a clean, green color palette.
 
 ## How to Build & Run
