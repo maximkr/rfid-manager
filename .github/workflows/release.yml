@@ -1,0 +1,107 @@
+name: Release
+
+# Запускается при пуше тега вида v1.1.0
+#   git tag v1.1.0 && git push origin v1.1.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # создать GitHub Release
+
+jobs:
+  release:
+    name: APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Релиз не выпускается, если юнит-тесты красные
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      # Собирается debug-сборка: она подписана отладочным ключом и потому
+      # устанавливается на устройство сразу. Чтобы выпускать release-сборку,
+      # нужен keystore — см. комментарий в конце файла.
+      - name: Build APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Подготовить артефакт
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             "dist/rfid-manager-${GITHUB_REF_NAME}-debug.apk"
+
+      - name: Подготовить описание релиза
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Установка
+
+          **Обычный способ — [RuStore](https://www.rustore.ru/catalog/app/com.trackstudio.rfidmanager).**
+          Оттуда приходит официальная подписанная сборка, она же обновляется штатно.
+
+          Приложенный ниже `rfid-manager-TAG_PLACEHOLDER-debug.apk` — сборка для
+          тестирования и сайдлоада: собрана из исходников этого тега и подписана
+          отладочным ключом.
+
+          ```bash
+          adb install -r rfid-manager-TAG_PLACEHOLDER-debug.apk
+          ```
+
+          > ⚠️ Отладочный ключ не совпадает с ключом сборки из RuStore. Поставить
+          > этот APK поверх версии из магазина не получится — Android откажет
+          > из-за несовпадения подписи. Сначала удалите установленное приложение.
+          > Обратная замена тоже потребует удаления.
+
+          Требуется Android 13 (API 33) или новее. Разрабатывалось и проверялось
+          на **Chainway C5**.
+          EOF
+          sed -i "s/TAG_PLACEHOLDER/${GITHUB_REF_NAME}/g" release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/rfid-manager-${GITHUB_REF_NAME}-debug.apk" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --generate-notes
+
+# ----------------------------------------------------------------------------
+# Как перейти на подписанную release-сборку
+#
+# 1. Создать keystore:
+#      keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 \
+#              -validity 10000 -alias release
+# 2. Добавить в Settings -> Secrets and variables -> Actions секреты:
+#      KEYSTORE_BASE64   — base64 файла release.jks
+#      KEYSTORE_PASSWORD
+#      KEY_ALIAS
+#      KEY_PASSWORD
+# 3. Прописать signingConfigs в app/build.gradle.kts, читая их из переменных
+#    окружения, и заменить выше assembleDebug на assembleRelease, а путь —
+#    на app/build/outputs/apk/release/app-release.apk
+#
+# Использовать здесь тот же keystore, которым подписана сборка в RuStore, —
+# тогда APK с GitHub будет ставиться поверх магазинной версии без удаления,
+# и предупреждение из описания релиза можно будет убрать.
+#
+# Keystore нужно хранить вне репозитория: потеряв его, вы не сможете выпускать
+# обновления, устанавливаемые поверх уже установленной версии.
+# ----------------------------------------------------------------------------
