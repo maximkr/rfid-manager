@@ -1,5 +1,8 @@
 # RFID Manager (Chainway C5)
 
+[![Android](https://github.com/maximkr/rfid-manager/actions/workflows/android.yml/badge.svg?branch=main)](https://github.com/maximkr/rfid-manager/actions/workflows/android.yml?query=branch%3Amain)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 <img src="c5.webp" align="right" width="260" hspace="16" vspace="8">
 
 A professional Android application for managing UHF RFID tags, purpose-built for **Chainway C5** rugged handheld terminals. Designed for warehouse operators, pharmacy staff, and retail teams who need to deploy or locate RFID-tagged items quickly and reliably — without expensive dedicated hardware.
