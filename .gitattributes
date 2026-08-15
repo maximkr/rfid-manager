@@ -1,0 +1,20 @@
+# В репозитории хранятся LF, в рабочей копии — как принято в ОС.
+* text=auto
+
+# Файлы, у которых окончания строк диктует потребитель.
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Бинарные — не трогать.
+*.jar binary
+*.aar binary
+*.jks binary
+*.keystore binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.ogg binary
+*.wav binary
+*.mp3 binary

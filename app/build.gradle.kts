@@ -10,6 +10,23 @@ plugins {
 // сборка и форки продолжают работать без доступа к ключу.
 val keystorePath: String? = System.getenv("KEYSTORE_PATH")
 
+// Версия сборки. По умолчанию — значения ниже; CI передаёт имя из тега
+// (-PappVersionName=1.2.3), а для сборок ветки добавляет суффикс с коммитом
+// (-PappVersionSuffix=-a1b2c3d), чтобы APK можно было отличить. versionCode
+// считается из версии и растёт вместе с ней: 1.2.3 -> 10203. Магазин требует
+// строго возрастающий код, поэтому руками его больше править не нужно.
+val appVersionName = (findProperty("appVersionName") as String? ?: "1.0").removePrefix("v").trim()
+val appVersionSuffix = findProperty("appVersionSuffix") as String? ?: ""
+
+fun versionCodeOf(name: String): Int {
+    val parsed = Regex("""^(\d+)\.(\d+)(?:\.(\d+))?""").find(name) ?: return 1
+    val (major, minor, patch) = parsed.destructured
+    return (major.toInt() * 10000 + minor.toInt() * 100 + (patch.toIntOrNull() ?: 0)).coerceAtLeast(1)
+}
+
+val appVersionCode = (findProperty("appVersionCode") as String?)?.toIntOrNull()
+    ?: versionCodeOf(appVersionName)
+
 android {
     namespace = "com.trackstudio.rfidmanager"
     compileSdk = 37
@@ -18,8 +35,8 @@ android {
         applicationId = "com.trackstudio.rfidmanager"
         minSdk = 33
         targetSdk = 33
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName + appVersionSuffix
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

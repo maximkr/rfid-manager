@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: Build & unit tests
+    name: Build, unit tests & signed APK
     runs-on: ubuntu-latest
 
     steps:
@@ -60,3 +60,54 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      # Дальше — подписанный release APK на каждое изменение в main. Тот же
+      # ключ, что и у релизов, поэтому сборка ставится поверх версии из
+      # RuStore как обычное обновление. На pull request шаги пропускаются:
+      # форкам секреты недоступны, да и подписывать чужой код незачем.
+      - name: Подготовить подпись
+        id: signing
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Ключ получен, собираем подписанный release APK"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Секрет KEYSTORE_BASE64 не задан — подписанный APK не собран"
+          fi
+
+      # Версия ветки помечается коротким SHA: 1.0-a1b2c3d. versionCode при
+      # этом остаётся тем же, что у 1.0, — переустановка поверх предыдущей
+      # сборки Android устраивает.
+      - name: Собрать подписанный release APK
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease "-PappVersionSuffix=-${GITHUB_SHA:0:7}"
+
+      - name: Проверить подпись
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -Vr | head -1)
+          "$APKSIGNER" verify --verbose --print-certs \
+            app/build/outputs/apk/release/app-release.apk
+
+      - name: Удалить ключ
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Upload signed APK
+        if: steps.signing.outputs.signed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: rfid-manager-signed-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

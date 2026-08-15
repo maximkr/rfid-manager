@@ -52,6 +52,7 @@ jobs:
             echo "::warning::Секрет KEYSTORE_BASE64 не задан — будет собран debug APK"
           fi
 
+      # Версия берётся из тега: v1.2.3 -> versionName 1.2.3, versionCode 10203.
       - name: Собрать подписанный release APK
         if: steps.signing.outputs.signed == 'true'
         env:
@@ -59,11 +60,11 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease "-PappVersionName=${GITHUB_REF_NAME}"
 
       - name: Собрать debug APK (ключ не задан)
         if: steps.signing.outputs.signed != 'true'
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleDebug "-PappVersionName=${GITHUB_REF_NAME}"
 
       # Печатает отпечаток сертификата, которым подписан APK. Это публичная
       # информация — она есть в любом опубликованном APK. Сверьте SHA-256
