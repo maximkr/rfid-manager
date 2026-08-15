@@ -2,9 +2,6 @@ package com.trackstudio.rfidmanager
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.media.AudioAttributes
-import android.media.AudioManager
-import android.media.SoundPool
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -60,10 +57,7 @@ class MainActivity : AppCompatActivity() {
     private var originalRadarPower: Int? = null
     private val uhfMutex = Mutex()
 
-    // Sound
-    private val soundMap = HashMap<Int, Int>()
-    private var soundPool: SoundPool? = null
-    private lateinit var am: AudioManager
+    private lateinit var soundPlayer: RfidSoundPlayer
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,9 +68,10 @@ class MainActivity : AppCompatActivity() {
 
         val navHostFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
         val navController = navHostFragment.navController
-        binding.bottomNavigation?.setupWithNavController(navController)
+        binding.bottomNavigation.setupWithNavController(navController)
 
-        initSound()
+        soundPlayer = RfidSoundPlayer(this)
+        soundPlayer.init()
         setupStatusObserver()
         initHardware()
     }
@@ -93,11 +88,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupStatusObserver() {
         viewModel.statusText.observe(this) { status ->
-            binding.tvGlobalStatus?.text = status
+            binding.tvGlobalStatus.text = status
         }
         viewModel.isConnected.observe(this) { connected ->
             val color = if (connected) R.color.md_theme_primary else R.color.md_theme_error
-            binding.ivStatusDot?.setColorFilter(ContextCompat.getColor(this, color))
+            binding.ivStatusDot.setColorFilter(ContextCompat.getColor(this, color))
         }
     }
 
@@ -130,7 +125,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        releaseSoundPool()
+        soundPlayer.release()
         barcodeDecoder?.close()
         super.onDestroy()
     }
@@ -259,7 +254,7 @@ class MainActivity : AppCompatActivity() {
         } catch (ex: IllegalArgumentException) {
             appendLog("Write rejected: ${ex.message}")
             addHistoryTag(code, false)
-            playSound(2)
+            playSound(RfidSoundPlayer.SOUND_ERROR)
             return
         }
 
@@ -303,7 +298,7 @@ class MainActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 appendLog(outcome.message)
                 addHistoryTag(outcome.label, outcome.success)
-                playSound(if (outcome.success) 1 else 2)
+                playSound(if (outcome.success) RfidSoundPlayer.SOUND_BEEP else RfidSoundPlayer.SOUND_ERROR)
             }
         }
     }
@@ -470,30 +465,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --- Utils ---
-    private fun initSound() {
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-        soundPool = SoundPool.Builder().setMaxStreams(10).setAudioAttributes(audioAttributes).build().apply {
-            soundMap[1] = load(this@MainActivity, R.raw.barcodebeep, 1)
-            soundMap[2] = load(this@MainActivity, R.raw.serror, 1)
-        }
-        am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    }
-
-    private fun releaseSoundPool() {
-        soundPool?.release()
-        soundPool = null
-    }
-
     fun playSound(id: Int, rate: Float = 1f) {
-        val soundId = soundMap[id] ?: return
-        val pool = soundPool ?: return
-        val volume = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        try {
-            pool.play(soundId, volume, volume, 1, 0, rate.coerceIn(0.5f, 2.0f))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        soundPlayer.play(id, rate)
     }
 }

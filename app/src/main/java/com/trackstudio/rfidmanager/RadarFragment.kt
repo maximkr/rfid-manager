@@ -42,10 +42,10 @@ class RadarFragment : Fragment() {
             if (accumulatedScore > -88f) {
                 // Пикаем OK, если находимся в зеленой зоне (сигнал растет или выше среднего)
                 if (accumulatedScore >= emaSlowScore) {
-                    mainActivity?.playSound(1, 1.0f) // Barcode beep
+                    mainActivity?.playSound(RfidSoundPlayer.SOUND_BEEP, 1.0f)
                 } else {
                     // Пикаем Error, если находимся в красной зоне (сигнал падает ниже среднего)
-                    mainActivity?.playSound(2, 1.0f) // Error beep
+                    mainActivity?.playSound(RfidSoundPlayer.SOUND_ERROR, 1.0f)
                 }
                 
                 // Фиксированный темп, больше не "счетчик гейгера"
